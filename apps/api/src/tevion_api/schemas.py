@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -41,6 +42,18 @@ class TaskSummary(BaseModel):
     mode: str
     output_count: int
     aspect_ratio: str
+
+
+class TaskDetail(BaseModel):
+    task_id: str
+    status: TaskStatus
+    mode: str
+    request: str
+    run_id: str
+    strategy_version: str
+    output_count: int | None = None
+    aspect_ratio: str | None = None
+    created_at: datetime
 
 
 class HealthResponse(BaseModel):
