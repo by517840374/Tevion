@@ -35,6 +35,7 @@ class CreateTaskRequest(BaseModel):
 
 class TaskSummary(BaseModel):
     task_id: str
+    user_id: str
     status: TaskStatus
     request: str
     mode: str

@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from .auth import get_current_user
+from .models import User
 from .runtime import TaskRuntime, TaskState
 from .schemas import CreateTaskRequest, HealthResponse, ProductMetadata, TaskStatus, TaskSummary
 
@@ -17,12 +19,16 @@ def product_metadata() -> ProductMetadata:
 
 
 @app.post("/api/v1/tasks", response_model=TaskSummary, status_code=202)
-def create_task(payload: CreateTaskRequest) -> TaskSummary:
+def create_task(
+    payload: CreateTaskRequest,
+    current_user: User = Depends(get_current_user),
+) -> TaskSummary:
     # Runtime persistence and provider execution are introduced in later slices.
     runtime = TaskRuntime("task_demo_contract")
     runtime.transition(TaskState.UNDERSTANDING, event_type="task_created")
     return TaskSummary(
         task_id=runtime.task_id,
+        user_id=current_user.id,
         status=TaskStatus.CREATED,
         request=payload.request,
         mode=payload.mode,
