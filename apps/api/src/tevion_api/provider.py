@@ -1,5 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+import httpx
+
+DEFAULT_MAIZI_BASE_URL = "https://www.maizitech.ai/v1"
 
 
 class ProviderConfigError(ValueError):
@@ -39,6 +43,7 @@ class GenerationRequest:
     output_count: int = 1
     aspect_ratio: str = "1:1"
     strategy_version: str = "default"
+    quality: str = "low"
 
 
 @dataclass(frozen=True)
@@ -107,14 +112,133 @@ class GPTImageProvider:
         )
 
 
+class MaizitechImageProvider:
+    """Real HTTP provider for a GPT-image-2 compatible async API (maizitech.ai).
+
+    Flow: POST /images/generations -> {task_id, status: pending}, then poll
+    GET /tasks/{task_id} until completed, and normalize result_urls into the
+    internal GenerationResult. Credentials come from the environment only.
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str = DEFAULT_MAIZI_BASE_URL,
+        model_name: str = "gpt-image-2",
+        http_client: httpx.Client | None = None,
+        poll_interval_seconds: float = 2.0,
+        timeout_seconds: float = 180.0,
+    ) -> None:
+        if not api_key.strip():
+            raise ProviderConfigError("Maizitech API key is required")
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model_name = model_name
+        self._client = http_client or httpx.Client(timeout=httpx.Timeout(30.0))
+        self._owns_client = http_client is None
+        self.poll_interval_seconds = poll_interval_seconds
+        self.timeout_seconds = timeout_seconds
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
+    def _submit(self, request: GenerationRequest) -> str:
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "prompt": request.prompt,
+            "size": request.aspect_ratio,
+            "quality": request.quality,
+        }
+        if request.output_count > 1:
+            payload["n"] = request.output_count
+        response = self._client.post(
+            f"{self.base_url}/images/generations", headers=self._headers(), json=payload
+        )
+        response.raise_for_status()
+        body = response.json()
+        items = body.get("data") or []
+        if items and isinstance(items[0], dict) and items[0].get("url"):
+            # synchronous-style response with immediate URL
+            self._immediate = items
+            return ""
+        task_id = items[0].get("task_id") if items else None
+        if not isinstance(task_id, str) or not task_id:
+            raise ProviderResponseError("provider returned no task id")
+        return task_id
+
+    def _redact(self, message: str) -> str:
+        return message.replace(self.api_key, "[REDACTED]")
+
+    def _poll(self, task_id: str) -> dict[str, Any]:
+        import time
+
+        deadline = time.monotonic() + self.timeout_seconds
+        while time.monotonic() < deadline:
+            response = self._client.get(
+                f"{self.base_url}/tasks/{task_id}", headers=self._headers()
+            )
+            response.raise_for_status()
+            body = response.json()
+            status = (body.get("status") or "").lower()
+            if status == "completed":
+                return body
+            if status in {"failed", "error", "cancelled"}:
+                raise ProviderResponseError(
+                    self._redact(f"provider task failed: {body.get('error_msg') or status}")
+                )
+            time.sleep(self.poll_interval_seconds)
+        raise ProviderResponseError("provider task timed out")
+
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        import time
+
+        started = time.monotonic()
+        task_id = self._submit(request)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if task_id == "":
+            items = getattr(self, "_immediate", [])
+            urls = [item["url"] for item in items if item.get("url")]
+            return GenerationResult(
+                provider_request_id="",
+                model_name=self.model_name,
+                asset_urls=urls,
+                latency_ms=latency_ms,
+                cost=None,
+            )
+        body = self._poll(task_id)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        urls = body.get("result_urls") or []
+        if not urls:
+            raise ProviderResponseError("completed task has no result URLs")
+        return GenerationResult(
+            provider_request_id=task_id,
+            model_name=body.get("model") or self.model_name,
+            asset_urls=[url for url in urls if isinstance(url, str)],
+            latency_ms=latency_ms,
+            cost=float(body["cost"]) if body.get("cost") is not None else None,
+            metadata={
+                "provider": "maizitech",
+                "params": body.get("params"),
+                "size": (body.get("params") or {}).get("size"),
+            },
+        )
+
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
+
+
 __all__ = [
     "GenerationRequest",
     "GenerationResult",
     "GPTImageProvider",
+    "MaizitechImageProvider",
     "ProviderConfigError",
     "ProviderResponseError",
     "ProviderError",
     "classify_provider_error",
+    "DEFAULT_MAIZI_BASE_URL",
 ]
 
 
