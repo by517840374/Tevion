@@ -37,6 +37,20 @@ uvicorn tevion_api.main:app --reload
 
 The current API only exposes health and product metadata. Generation-provider integration is deliberately a later issue after the domain contracts and UX are reviewed.
 
+## Local database (PostgreSQL via Docker)
+
+The product data layer targets PostgreSQL. Local development runs a real instance through docker-compose:
+
+```bash
+docker compose up -d db          # start PostgreSQL 16 (creates `tevion` + `tevion_test`)
+cp .env.example .env             # optional local overrides
+cd apps/api
+.venv/bin/alembic upgrade head   # apply migrations to `tevion`
+.venv/bin/python -m pytest       # 25+ tests, including real-PG roundtrips
+```
+
+`TEVION_DB_URL` in `.env` overrides the default local URL. Tests use the dedicated `tevion_test` database and are skipped automatically when PostgreSQL is unreachable.
+
 ## Project principles
 
 1. Product experience before provider lock-in.
