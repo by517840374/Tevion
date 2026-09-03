@@ -1,0 +1,23 @@
+# Local development stack for Tevion.
+# Production credentials must never be placed here.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tevion-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tevion}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tevion_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-tevion}
+    ports:
+      - "5432:5432"
+    volumes:
+      - tevion_pgdata:/var/lib/postgresql/data
+      - ./infra/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tevion} -d ${POSTGRES_DB:-tevion}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  tevion_pgdata:
