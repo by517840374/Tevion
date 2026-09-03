@@ -17,13 +17,12 @@ def test_product_metadata() -> None:
     assert response.json()["initial_goal"]
 
 
-def test_create_task_preserves_contract() -> None:
+def test_create_task_requires_authentication() -> None:
     response = client.post(
         "/api/v1/tasks",
         json={"request": "清爽、明确成年的男性肖像", "mode": "explore", "output_count": 4},
     )
-    assert response.status_code == 202
-    assert response.json()["status"] == "created"
+    assert response.status_code == 401
 
 
 def test_task_runtime_endpoint_exposes_bounded_snapshot() -> None:
