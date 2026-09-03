@@ -1,31 +1,34 @@
 # Tevion
 
-Tevion is a product-oriented visual AI Agent. It starts with a focused goal: helping users create clearly adult male portraits with fresh youthful energy, strong lighting, and a controllable visual style. The long-term product is a personal visual agent that learns from user choices, edits, ratings, and usage—not a thin wrapper around an image API.
+Tevion 是一个产品化的视觉 AI Agent。当前阶段聚焦于帮助用户创作**明确为成年男性的肖像**，呈现清新、年轻的活力感，具备有力的光影效果，并支持可控的视觉风格。
 
-## Product thesis
+Tevion 的长期目标不是简单封装图像 API，而是成为能够从用户的选择、编辑、评价和使用行为中学习的个人视觉 Agent。
+
+## 产品理念
 
 ```text
-user intent → visual interpretation → candidate generation → comparison → feedback
-          → preference memory → better next decision
+用户意图 → 视觉理解 → 候选生成 → 对比选择 → 反馈
+        → 偏好记忆 → 下一次做出更好的决策
 ```
 
-The first release treats GPT-image2 as a replaceable generation provider. The product boundary is the web/app experience, the task/session/version data model, the feedback loop, and the policy-controlled learning layer.
+首个版本将 GPT-image2 作为可替换的图像生成 Provider。产品的核心边界包括：Web/App 体验、task/session/version 数据模型、反馈闭环，以及受策略控制的学习层。
 
-## Repository status
+## 仓库现状
 
-- `apps/api/`: backend foundation and domain contracts.
-- `docs/`: product, architecture, and decision records.
-- Frontend work is intentionally kept outside this repository during the early product exploration phase. Current local prototype location: `/Users/adtiger/Tevion-frontend`.
+- `apps/api/`：后端基础设施和领域契约。
+- `docs/`：产品文档、架构文档和决策记录。
+- 前端代码在早期产品探索阶段暂不放入本仓库。目前本地原型位于：`/Users/adtiger/Tevion-frontend`。
+- `README.en.md`：英文版说明文档。
 
-## Non-goals for the first slice
+## 第一阶段暂不包含的内容
 
-- No foundation-model training.
-- No unrestricted autonomous agent loop.
-- No cross-user private case retrieval.
-- No public frontend code until the interaction model is validated.
-- No hard dependency on ComfyUI; it can become a future provider.
+- 不训练基础模型。
+- 不实现不受限制的自主 Agent 循环。
+- 不允许跨用户检索私有案例。
+- 交互模型验证完成前，不发布正式前端代码。
+- 不强依赖 ComfyUI；未来可以将其作为一个 Provider 接入。
 
-## Local API foundation
+## 本地运行 API
 
 ```bash
 cd apps/api
@@ -35,29 +38,47 @@ pip install -e '.[dev]'
 uvicorn tevion_api.main:app --reload
 ```
 
-The current API only exposes health and product metadata. Generation-provider integration is deliberately a later issue after the domain contracts and UX are reviewed.
+当前 API 只提供健康检查和产品元数据接口。生成 Provider 的集成将在领域契约和 UX 经过评审后，通过后续 Issue 开展。
 
-## Local database (PostgreSQL via Docker)
+## 本地数据库（Docker 运行 PostgreSQL）
 
-The product data layer targets PostgreSQL. Local development runs a real instance through docker-compose:
+产品数据层使用 PostgreSQL。本地开发通过 docker-compose 运行真实的数据库实例：
 
 ```bash
-docker compose up -d db          # start PostgreSQL 16 (creates `tevion` + `tevion_test`)
-cp .env.example .env             # optional local overrides
+docker compose up -d db          # 启动 PostgreSQL 16，并创建 `tevion` 与 `tevion_test`
+cp .env.example .env             # 可选：复制并修改本地配置
 cd apps/api
-.venv/bin/alembic upgrade head   # apply migrations to `tevion`
-.venv/bin/python -m pytest       # 25+ tests, including real-PG roundtrips
+.venv/bin/alembic upgrade head   # 将迁移应用到 `tevion`
+.venv/bin/python -m pytest       # 运行测试，包括真实 PostgreSQL 往返测试
 ```
 
-`TEVION_DB_URL` in `.env` overrides the default local URL. Tests use the dedicated `tevion_test` database and are skipped automatically when PostgreSQL is unreachable.
+`.env` 中的 `TEVION_DB_URL` 可以覆盖默认的本地数据库 URL。测试使用独立的 `tevion_test` 数据库；当 PostgreSQL 无法连接时，相关测试会自动跳过。
 
-## Project principles
+## 项目原则
 
-1. Product experience before provider lock-in.
-2. Explicit state transitions before free-form autonomy.
-3. Every prompt, tool call, image version, decision, and feedback event is traceable.
-4. Session memory, user preference, and global strategy learning remain separate.
-5. Learning proposals are evaluated and versioned before release.
-6. User images and private preferences are private by default.
+1. 产品体验优先于 Provider 锁定。
+2. 在开放式自主运行之前，先建立明确的状态转换规则。
+3. 每个 prompt、tool call、图像版本、决策和反馈事件都必须可追溯。
+4. 严格区分 session memory、user preference 和 global strategy learning。
+5. 学习提案必须经过评估和版本化后才能发布。
+6. 用户图像和私有偏好默认保持私有。
 
-See `docs/` for the current product and architecture definition.
+## 文档导航
+
+建议先阅读以下文档：
+
+1. `docs/PRODUCT_BRIEF.md`：产品目标、用户、核心体验、指标和风险。
+2. `docs/PRODUCT_DEVELOPMENT_FLOW.md`：六类产品开发流程。
+3. `docs/ARCHITECTURE.md`：系统边界、状态机、Provider 契约和记忆隔离。
+4. `docs/DECISIONS.md`：已确定的产品与架构决策。
+
+如需查看英文版，请阅读 `README.en.md`。
+
+## 许可证
+
+当前仓库未在 README 中声明许可证；如需开源发布，请先补充明确的 License 文件和说明。
+
+## 相关链接
+
+- GitHub：<https://github.com/by517840374/Tevion>
+- 前端探索目录：`/Users/adtiger/Tevion-frontend`
