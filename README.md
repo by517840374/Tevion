@@ -15,8 +15,9 @@ Tevion 的长期目标不是简单封装图像 API，而是成为能够从用户
 
 ## 仓库现状
 
-- `apps/api/`：后端基础设施和领域契约。
+- `apps/api/`：后端基础设施、领域契约，以及已实现的 API 模块（health、product、tasks、runtime、provider、learning）。
 - `docs/`：产品文档、架构文档和决策记录。
+- 数据层已落地：PostgreSQL（Docker 本地开发）、Alembic 迁移，以及 8 张核心表（users、projects、personas、sessions、generation_runs、image_versions、feedback_events、preference_events）。
 - 前端代码在早期产品探索阶段暂不放入本仓库。目前本地原型位于：`/Users/adtiger/Tevion-frontend`。
 - `README.en.md`：英文版说明文档。
 
@@ -38,7 +39,7 @@ pip install -e '.[dev]'
 uvicorn tevion_api.main:app --reload
 ```
 
-当前 API 只提供健康检查和产品元数据接口。生成 Provider 的集成将在领域契约和 UX 经过评审后，通过后续 Issue 开展。
+当前 API 已提供健康检查、产品元数据、任务创建，以及任务运行时快照端点；生成 Provider 的实际执行与持久化仍按分层边界继续演进。
 
 ## 本地数据库（Docker 运行 PostgreSQL）
 
