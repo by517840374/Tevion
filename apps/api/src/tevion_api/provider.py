@@ -11,6 +11,29 @@ class ProviderResponseError(ValueError):
 
 
 @dataclass(frozen=True)
+class ProviderError:
+    code: str
+    message: str
+    retryable: bool
+
+
+def classify_provider_error(error: Exception) -> ProviderError:
+    raw = str(error)
+    lowered = raw.lower()
+    if isinstance(error, TimeoutError) or "timeout" in lowered:
+        return ProviderError("timeout", "provider request timed out", True)
+    if "429" in lowered or "rate limit" in lowered:
+        return ProviderError("rate_limit", "provider rate limit reached", True)
+    if any(token in lowered for token in ("500", "502", "503", "504", "server error")):
+        return ProviderError("server_error", "provider server error", True)
+    if "model" in lowered and "unavailable" in lowered:
+        return ProviderError("model_unavailable", "requested model is unavailable", False)
+    if "malformed" in lowered or isinstance(error, ValueError):
+        return ProviderError("malformed_response", "provider response is malformed", False)
+    return ProviderError("provider_error", "provider request failed", False)
+
+
+@dataclass(frozen=True)
 class GenerationRequest:
     prompt: str
     output_count: int = 1
@@ -90,6 +113,8 @@ __all__ = [
     "GPTImageProvider",
     "ProviderConfigError",
     "ProviderResponseError",
+    "ProviderError",
+    "classify_provider_error",
 ]
 
 
