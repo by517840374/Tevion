@@ -4,11 +4,17 @@
 
 Tevion is a product system with an agent runtime inside it. The web/app and its data contracts are first-class; GPT-image2 is only one implementation of an `ImageGenerationProvider`.
 
+Authentication is separate from business authorization. An external OAuth 2.0 / OpenID Connect provider handles login and credentials. FastAPI acts as a resource server: it extracts `Authorization: Bearer <access_token>`, validates token signature and claims, maps the provider subject to a local `users.id`, and enforces ownership on every private resource.
+
 ```text
 Web/App
+  ↓ OAuth/OIDC login (Authorization Code + PKCE)
+Identity Provider
+  ↓ access token
+Web/App: Authorization: Bearer <access_token>
   ↓
 Product API
-  ├── identity, projects, sessions, feedback, permissions
+  ├── token validation, local user mapping, projects, sessions, permissions
   └── generation task commands and event stream
        ↓
 Agent Runtime (explicit state machine)
@@ -93,6 +99,16 @@ Do not store secrets, raw authorization headers, or private assets in logs.
 - Global strategy data is consented, minimized, anonymized, and evaluated offline.
 - Private cases never enter another user's retrieval results.
 
+## Authentication and authorization
+
+```text
+external provider: login, password, MFA, token issuance
+FastAPI: bearer extraction, JWT/JWKS validation, claims checks
+Tevion database: local user identity mapping and product ownership
+```
+
+The `users` table includes `auth_provider` and `provider_subject`, with a unique constraint on `(auth_provider, provider_subject)`. Business tables reference internal `users.id`, never a raw email address. A valid token alone is insufficient: every project, session, image version, feedback event, and preference query must verify ownership or explicit project membership.
+
 ## Provider contract
 
 The provider interface must normalize differences in API request/response formats. It returns an internal generation result containing provider request ID, model, effective parameters, assets, latency, cost when available, and raw metadata subject to redaction. Business logic must not depend on a provider SDK type.
@@ -106,5 +122,6 @@ The first code slice establishes:
 - frontend prototype outside the public repository;
 - GitHub issue backlog describing product slices;
 - a stable path for adding the real provider without coupling the UI to it.
+- an authentication seam that can accept a real OIDC provider without embedding password logic in the product.
 
 It intentionally does not pretend that the learning loop exists before event capture and feedback UX are implemented.

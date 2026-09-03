@@ -108,3 +108,20 @@ Supporting metrics:
 - API quality can dominate the product: keep providers replaceable and measure strategy separately.
 - Learning can become invisible or creepy: show what was remembered, why, and provide delete/temporary controls.
 - A broad platform can dilute the initial value: keep the first goal narrow until repeated use is proven.
+
+## 9. Account and identity boundary
+
+Tevion is a multi-user product, so personalization data must be tied to an authenticated identity.
+
+```text
+OAuth/OIDC identity provider
+→ access token
+→ Web/App sends Authorization: Bearer <access_token>
+→ FastAPI validates the token
+→ provider subject maps to Tevion users.id
+→ project/session/image/preference ownership is enforced
+```
+
+`HTTPBearer` is the FastAPI token extraction mechanism, not the account system. Tevion should not receive or store an external provider's password. The selected identity provider owns login and credential recovery; Tevion owns the local user mapping and product authorization.
+
+Only health, public product metadata, and applicable auth callbacks may be unauthenticated. Task, project, image, feedback, memory, and export endpoints require a valid token plus an ownership check.

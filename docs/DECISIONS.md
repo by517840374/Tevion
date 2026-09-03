@@ -35,3 +35,9 @@ The initial frontend prototype is stored at `/Users/adtiger/Tevion-frontend`, ou
 **Status:** Accepted
 
 Candidate selection, comparison, rejection reason, edit request, download, and continued editing are first-class events. A “self-learning” claim is not valid until these events are captured with enough context to connect behavior to generated outputs.
+
+## ADR-007: External identity, local authorization
+
+**Status:** Accepted
+
+Tevion uses an external OAuth 2.0 / OpenID Connect identity provider for login and credential management. The frontend sends an access token as `Authorization: Bearer <access_token>`. FastAPI uses HTTP Bearer extraction plus JWT/JWKS claim validation, then maps `(auth_provider, provider_subject)` to a local `users.id`. Tevion does not store the external password. Product authorization and resource ownership remain local to Tevion.

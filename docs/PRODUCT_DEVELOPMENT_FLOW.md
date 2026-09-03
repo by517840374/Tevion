@@ -56,6 +56,7 @@ Before making a product or code change, the agent should be able to explain:
 - which memory scope is affected;
 - which repository or private prototype is allowed to change;
 - how the change will be verified.
+- how the change handles authenticated identity, ownership, and private data.
 
 ---
 
@@ -91,11 +92,12 @@ product opportunity
 
 ```text
 Slice 1: project/session/persona/event contracts
-Slice 2: bounded agent state machine
-Slice 3: GPT-image2 provider contract and mocked execution
-Slice 4: create-session API + private workbench integration
-Slice 5: candidate selection and feedback persistence
-Slice 6: project preference projection and visible memory
+Slice 2: authentication seam and local user mapping
+Slice 3: bounded agent state machine
+Slice 4: GPT-image2 provider contract and mocked execution
+Slice 5: create-session API + private workbench integration
+Slice 6: candidate selection and feedback persistence
+Slice 7: project preference projection and visible memory
 ```
 
 A slice is not complete when code compiles. It is complete when the user can perform the intended action and the system records the evidence needed for the next product decision.
