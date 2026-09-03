@@ -54,6 +54,34 @@ def get_auth_settings() -> AuthSettings:
     )
 
 
+def create_dev_token(subject: str, settings: AuthSettings | None = None) -> str:
+    """Issue a short-lived HS256 token for local frontend development.
+
+    Only available when a dev secret is configured; never enabled in
+    JWKS/production mode.
+    """
+    import time
+
+    settings = settings or get_auth_settings()
+    if settings.jwks_url or not settings.dev_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="dev token endpoint is disabled",
+        )
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "sub": subject,
+            "iss": settings.issuer,
+            "aud": settings.audience,
+            "exp": now + 3600,
+            "iat": now,
+        },
+        settings.dev_secret,
+        algorithm="HS256",
+    )
+
+
 def decode_token(token: str, settings: AuthSettings | None = None) -> dict[str, Any]:
     settings = settings or get_auth_settings()
     if settings.jwks_url:

@@ -1,20 +1,47 @@
+import os
+
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+from sqlalchemy.orm import Session as OrmSession
 
 from . import services
-from .auth import get_current_user
+from .auth import create_dev_token, get_auth_settings, get_current_user
 from .db import get_db
-from .models import User
+from .models import ImageVersion, User
+from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
 from .schemas import (
     CreateTaskRequest,
+    DevTokenResponse,
+    GenerateResponse,
     HealthResponse,
+    ImageSummary,
     ProductMetadata,
     TaskDetail,
     TaskStatus,
     TaskSummary,
 )
-from sqlalchemy.orm import Session as OrmSession
 
 app = FastAPI(title="Tevion Product API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def get_image_provider() -> MaizitechImageProvider:
+    """Build the real provider from environment; tests override this dependency."""
+    api_key = os.environ.get("MAIZI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="image provider is not configured")
+    return MaizitechImageProvider(
+        api_key=api_key,
+        base_url=os.environ.get("MAIZI_BASE_URL", DEFAULT_MAIZI_BASE_URL),
+        model_name=os.environ.get("MAIZI_MODEL", "gpt-image-2"),
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -25,6 +52,15 @@ def health() -> HealthResponse:
 @app.get("/api/v1/product", response_model=ProductMetadata)
 def product_metadata() -> ProductMetadata:
     return ProductMetadata()
+
+
+@app.post("/api/v1/auth/dev-token", response_model=DevTokenResponse)
+def dev_token() -> DevTokenResponse:
+    """Local-only endpoint issuing a demo token (disabled in production mode)."""
+    settings = get_auth_settings()
+    if settings.jwks_url or not settings.dev_secret:
+        raise HTTPException(status_code=503, detail="dev token endpoint is disabled")
+    return DevTokenResponse(access_token=create_dev_token("demo_user"))
 
 
 @app.post("/api/v1/tasks", response_model=TaskSummary, status_code=202)
@@ -38,7 +74,11 @@ def create_task(
         current_user,
         request=payload.request,
         mode=payload.mode,
-        parameters={"output_count": payload.output_count, "aspect_ratio": payload.aspect_ratio},
+        parameters={
+            "output_count": payload.output_count,
+            "aspect_ratio": payload.aspect_ratio,
+            "quality": "low",
+        },
     )
     return TaskSummary(
         task_id=created.session.id,
@@ -48,6 +88,39 @@ def create_task(
         mode=created.session.mode,
         output_count=payload.output_count,
         aspect_ratio=payload.aspect_ratio,
+    )
+
+
+def _image_summaries(db: OrmSession, run_id: str) -> list[ImageSummary]:
+    rows = db.scalars(
+        select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at)
+    ).all()
+    return [
+        ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height)
+        for image in rows
+    ]
+
+
+@app.post("/api/v1/tasks/{task_id}/generate", response_model=GenerateResponse)
+def generate_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+    provider: MaizitechImageProvider = Depends(get_image_provider),
+) -> GenerateResponse:
+    task = services.get_task_for_user(db, current_user.id, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    images = services.execute_generation(db, task, provider)
+    db.commit()
+    return GenerateResponse(
+        task_id=task.session.id,
+        status=TaskStatus(task.session.status),
+        run_id=task.run.id,
+        images=[
+            ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height)
+            for image in images
+        ],
     )
 
 
@@ -71,6 +144,7 @@ def get_task(
         output_count=params.get("output_count"),
         aspect_ratio=params.get("aspect_ratio"),
         created_at=task.session.created_at,
+        images=_image_summaries(db, task.run.id),
     )
 
 

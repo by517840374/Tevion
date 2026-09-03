@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -110,6 +110,12 @@ class GPTImageProvider:
             if response.get("strategy_version")
             else None,
         )
+
+
+class ImageGenerationProvider(Protocol):
+    """Structural contract: any provider able to execute a generation request."""
+
+    def generate(self, request: GenerationRequest) -> GenerationResult: ...
 
 
 class MaizitechImageProvider:
@@ -233,6 +239,7 @@ __all__ = [
     "GenerationRequest",
     "GenerationResult",
     "GPTImageProvider",
+    "ImageGenerationProvider",
     "MaizitechImageProvider",
     "ProviderConfigError",
     "ProviderResponseError",
@@ -240,6 +247,3 @@ __all__ = [
     "classify_provider_error",
     "DEFAULT_MAIZI_BASE_URL",
 ]
-
-
-ImageGenerationProvider = GPTImageProvider
