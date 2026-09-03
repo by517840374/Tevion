@@ -111,7 +111,7 @@ def test_create_task_persists_session_and_run(db_override: None) -> None:
         )
         assert run is not None
         assert run.strategy_version == "default"
-        assert run.parameters_json == {"output_count": 4, "aspect_ratio": "4:5"}
+        assert run.parameters_json == {"output_count": 4, "aspect_ratio": "4:5", "quality": "low"}
         # default project was auto-created
         project = session.get(m.Project, stored_session.project_id)
         assert project is not None and project.name == "默认项目"

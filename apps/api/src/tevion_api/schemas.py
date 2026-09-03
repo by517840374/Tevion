@@ -44,6 +44,13 @@ class TaskSummary(BaseModel):
     aspect_ratio: str
 
 
+class ImageSummary(BaseModel):
+    id: str
+    url: str
+    width: int | None = None
+    height: int | None = None
+
+
 class TaskDetail(BaseModel):
     task_id: str
     status: TaskStatus
@@ -54,6 +61,19 @@ class TaskDetail(BaseModel):
     output_count: int | None = None
     aspect_ratio: str | None = None
     created_at: datetime
+    images: list[ImageSummary] = Field(default_factory=list)
+
+
+class GenerateResponse(BaseModel):
+    task_id: str
+    status: TaskStatus
+    run_id: str
+    images: list[ImageSummary] = Field(default_factory=list)
+
+
+class DevTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class HealthResponse(BaseModel):
