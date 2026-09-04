@@ -1,7 +1,7 @@
 /* Tevion 前端工作台 — 连接真实后端 API
  * 后端地址如有变化，只需修改 API_BASE。
  */
-const API_BASE = 'http://127.0.0.1:8010/api/v1';
+const API_BASE = window.TEVION_API_BASE || 'http://127.0.0.1:8010/api/v1';
 const TOKEN_KEY = 'tevion_token';
 
 /* ---------- 小工具 ---------- */
