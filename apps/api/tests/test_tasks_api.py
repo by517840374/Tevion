@@ -415,9 +415,16 @@ def test_create_task_binds_requested_project(db_override: None) -> None:
 
     engine = create_engine(TEST_DB_URL)
     with OrmSession(engine) as session:
-        stored = session.get(m.Session, response.json()["task_id"])
+        body = response.json()
+        stored = session.get(m.Session, body["task_id"])
         assert stored is not None
         assert stored.project_id == selected_id
+        run = session.get(m.GenerationRun, body["run_id"])
+        assert run is not None
+        assert run.session_id == stored.id
+        stored_project = session.get(m.Project, stored.project_id)
+        assert stored_project is not None
+        assert stored_project.id == selected_id
     engine.dispose()
 
 
@@ -431,6 +438,16 @@ def test_create_task_rejects_project_owned_by_other_user_without_leaking_it(db_o
         "/api/v1/tasks",
         json={"request": "越权项目", "project_id": foreign_project_id, "mode": "explore", "output_count": 2},
         headers=_auth("sub_project_attacker"),
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "project not found"
+
+
+def test_create_task_rejects_nonexistent_project_without_creating_a_task(db_override: None) -> None:
+    response = client.post(
+        "/api/v1/tasks",
+        json={"request": "不存在项目", "project_id": "project_missing", "mode": "explore", "output_count": 2},
+        headers=_auth("sub_missing_project"),
     )
     assert response.status_code == 404
     assert response.json()["detail"] == "project not found"
