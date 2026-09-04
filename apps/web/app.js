@@ -15,6 +15,15 @@ let chosenId = null;      // 当前高亮的候选图 id
 let lastFeedbackIntent = null;
 let elapsedTimer = null;
 let genStartedAt = 0;
+let historyState = {
+  projects: [],
+  selectedProjectId: null,
+  sessions: [],
+  selectedSessionId: null,
+  versions: [],
+  currentImageId: null,
+  preferences: []
+};
 
 function toast(msg, type = 'info', ms = 5000) {
   const el = $('toast');
@@ -172,6 +181,8 @@ function refreshLoginUI() {
   const cta = $('loginCta');
   const results = $('results');
   if (cta) cta.hidden = has || results.classList.contains('results') || results.querySelector('.error-box');
+  const refresh = $('historyRefreshBtn');
+  if (refresh) refresh.disabled = !has;
 }
 
 async function handleLogin() {
@@ -369,34 +380,128 @@ function renderFeedbackStatus(text, canRetry = false) {
   retry.hidden = !canRetry;
 }
 
-async function refreshVisualMemory() {
-  if (!currentTask || !currentTask.task_id) return;
-  const right = document.querySelector('.right-column');
-  if (!right) return;
-  try {
-    const data = await api(`/preferences?scope=project&task_id=${encodeURIComponent(currentTask.task_id)}`);
-    const items = Array.isArray(data && data.items) ? data.items : [];
-    const grouped = items.reduce((acc, item) => {
-      const scope = item.scope || 'project';
-      (acc[scope] ||= []).push(item);
-      return acc;
-    }, {});
-    const makeTags = list => list.length
-      ? '<div class="memory-tags">' + list.map(item => '<span>' + escapeHtml(item.key + ': ' + item.value) + '</span>').join('') + '</div>'
-      : '<p class="muted">暂无可见记忆。</p>';
-    right.innerHTML =
-      '<div class="eyebrow">VISUAL MEMORY</div>' +
-      '<h2>Agent 对你的理解</h2>' +
-      '<p class="muted intro">来自偏好查询端点的项目记忆</p>' +
-      '<div class="memory-block"><div class="memory-title"><span>项目偏好</span><span class="confidence">' + items.length + ' 条</span></div>' +
-      makeTags(grouped.project || []) + '</div>' +
-      '<div class="memory-block dim"><div class="memory-title"><span>会话偏好</span><span class="confidence low">' + (grouped.session ? grouped.session.length : 0) + ' 条</span></div>' +
-      makeTags(grouped.session || []) + '</div>' +
-      '<div class="memory-footer"><span class="memory-pulse"></span><p>反馈后会从后端读取最新偏好。<br><button class="text-button" id="memoryBtn">刷新记忆 →</button></p></div>';
-    right.querySelector('#memoryBtn').addEventListener('click', refreshVisualMemory);
-  } catch (err) {
-    right.querySelector('.intro').textContent = '记忆读取失败：' + err.message;
+async function refreshHistoryPanel(options = {}) {
+  const panel = $('historyPanel');
+  if (!panel) return;
+  const {
+    projectId = historyState.selectedProjectId,
+    sessionId = historyState.selectedSessionId || (currentTask && currentTask.task_id) || null,
+    currentImageId = historyState.currentImageId || chosenId || null,
+    force = false
+  } = options;
+
+  if (!getToken()) {
+    historyState = { projects: [], selectedProjectId: null, sessions: [], selectedSessionId: null, versions: [], currentImageId: null, preferences: [] };
+    renderHistoryPanel({ intro: '未登录：请先完成「演示登录」后再加载历史。' });
+    return;
   }
+
+  $('historyIntro').textContent = '正在读取项目、会话与版本摘要…';
+  try {
+    const projectData = await api('/projects');
+    const projects = Array.isArray(projectData && projectData.items) ? projectData.items : [];
+    const selectedProjectId = projectId || (currentTask && currentTask.project_id) || (projects[0] && projects[0].id) || null;
+
+    let sessions = [];
+    if (selectedProjectId) {
+      const sessionData = await api('/projects/' + encodeURIComponent(selectedProjectId) + '/sessions');
+      sessions = Array.isArray(sessionData && sessionData.items) ? sessionData.items : [];
+    }
+    const selectedSessionId = sessionId || (sessions[0] && sessions[0].id) || null;
+
+    let versions = [];
+    if (selectedSessionId) {
+      const suffix = currentImageId ? '?current_image_id=' + encodeURIComponent(currentImageId) : '';
+      const versionData = await api('/sessions/' + encodeURIComponent(selectedSessionId) + '/versions' + suffix);
+      versions = Array.isArray(versionData && versionData.items) ? versionData.items : [];
+    }
+
+    let preferences = [];
+    if (selectedSessionId && (force || currentTask && currentTask.task_id === selectedSessionId)) {
+      const preferenceData = await api('/preferences?scope=project&task_id=' + encodeURIComponent(selectedSessionId));
+      preferences = Array.isArray(preferenceData && preferenceData.items) ? preferenceData.items : [];
+    }
+
+    historyState = {
+      projects,
+      selectedProjectId,
+      sessions,
+      selectedSessionId,
+      versions,
+      currentImageId,
+      preferences
+    };
+    renderHistoryPanel({ intro: '历史摘要来自真实 API，可切换项目和会话回看生成记录。' });
+  } catch (err) {
+    renderHistoryFailure(err);
+  }
+}
+
+function renderHistoryFailure(err) {
+  $('historyIntro').textContent = '历史读取失败：' + err.message;
+  $('historyProjectBadge').textContent = '失败';
+  $('historySessionBadge').textContent = '失败';
+  $('historyMemoryBadge').textContent = '失败';
+  $('historyProjectList').innerHTML = '<div class="history-error"><p>' + escapeHtml(err.message) + '</p><button class="secondary-button" id="historyRetryBtn">重试读取</button></div>';
+  $('historySessionList').innerHTML = '<p class="muted">可以在后端恢复后重试，或重新登录。</p>';
+  $('historyMemoryList').innerHTML = '<p class="muted">偏好摘要暂不可用。</p>';
+  $('historyRetryBtn')?.addEventListener('click', () => refreshHistoryPanel({ force: true }));
+}
+
+function renderHistoryPanel({ intro }) {
+  $('historyIntro').textContent = intro;
+  $('historyProjectBadge').textContent = historyState.projects.length ? historyState.projects.length + ' 个' : '空';
+  $('historySessionBadge').textContent = historyState.sessions.length ? historyState.sessions.length + ' 条' : '空';
+  $('historyMemoryBadge').textContent = historyState.preferences.length ? historyState.preferences.length + ' 条' : '空';
+
+  $('historyProjectList').innerHTML = historyState.projects.length
+    ? '<div class="history-list">' + historyState.projects.map(project =>
+        '<button class="history-item' + (project.id === historyState.selectedProjectId ? ' active' : '') + '" data-history-project="' + escapeHtml(project.id) + '">' +
+          '<span class="history-item-title">' + escapeHtml(project.name) + '</span>' +
+          '<span class="history-item-meta">' + escapeHtml(project.session_count + ' 个会话') + '</span>' +
+        '</button>'
+      ).join('') + '</div>'
+    : '<p class="muted">当前没有可见项目。</p>';
+
+  const selectedSession = historyState.sessions.find(item => item.id === historyState.selectedSessionId) || null;
+  const sessionMarkup = historyState.sessions.length
+    ? '<div class="history-section-label">会话</div><div class="history-list">' + historyState.sessions.map(session =>
+        '<button class="history-item' + (session.id === historyState.selectedSessionId ? ' active' : '') + '" data-history-session="' + escapeHtml(session.id) + '">' +
+          '<span class="history-item-title">' + escapeHtml(session.mode === 'refine' ? '精修会话' : '探索会话') + '</span>' +
+          '<span class="history-item-meta">' + escapeHtml(session.image_count + ' 个版本 · ' + session.status) + '</span>' +
+        '</button>'
+      ).join('') + '</div>'
+    : '<p class="muted">当前项目下还没有会话。</p>';
+
+  const versionMarkup = historyState.versions.length
+    ? '<div class="history-section-label">版本</div><div class="history-version-list">' + historyState.versions.map(version => {
+        const dims = version.width && version.height ? version.width + '×' + version.height : '尺寸未知';
+        const lineage = version.is_current_lineage ? ' 当前链路' : '';
+        return '<button class="history-version-item' + (version.id === historyState.currentImageId ? ' active' : '') + '" data-history-version="' + escapeHtml(version.id) + '">' +
+          '<span class="history-item-title">' + escapeHtml(version.id) + '</span>' +
+          '<span class="history-item-meta">' + escapeHtml(dims + lineage) + '</span>' +
+        '</button>';
+      }).join('') + '</div>'
+    : '<p class="muted">所选会话下还没有已生成版本。</p>';
+
+  $('historySessionList').innerHTML = sessionMarkup + (selectedSession ? '<p class="muted history-request">' + escapeHtml(selectedSession.request || '') + '</p>' : '') + versionMarkup;
+  $('historyMemoryList').innerHTML = historyState.preferences.length
+    ? '<div class="memory-tags">' + historyState.preferences.map(item => '<span>' + escapeHtml(item.key + ': ' + item.value) + '</span>').join('') + '</div>'
+    : '<p class="muted">当前项目还没有可见偏好摘要。</p>';
+
+  document.querySelectorAll('[data-history-project]').forEach(button => {
+    button.addEventListener('click', () => refreshHistoryPanel({ projectId: button.dataset.historyProject, sessionId: null, currentImageId: null, force: true }));
+  });
+  document.querySelectorAll('[data-history-session]').forEach(button => {
+    button.addEventListener('click', () => refreshHistoryPanel({ projectId: historyState.selectedProjectId, sessionId: button.dataset.historySession, currentImageId: null, force: true }));
+  });
+  document.querySelectorAll('[data-history-version]').forEach(button => {
+    button.addEventListener('click', () => refreshHistoryPanel({ projectId: historyState.selectedProjectId, sessionId: historyState.selectedSessionId, currentImageId: button.dataset.historyVersion, force: true }));
+  });
+}
+
+async function refreshVisualMemory() {
+  await refreshHistoryPanel({ force: true, currentImageId: chosenId || historyState.currentImageId || null });
 }
 
 async function handleCandidateAction(action, id) {
@@ -535,6 +640,7 @@ async function handleGenerate({ reuse = false } = {}) {
       }});
       currentTask.task_id = created.task_id;
       currentTask.run_id = created.run_id;
+      currentTask.project_id = created.project_id || currentTask.project_id || null;
       showEcho(currentTask.request);
       setCheckpoint('需求已记录（任务 ' + currentTask.task_id + '），开始生成候选…');
       setAgentPill('需求已记录，开始生成', 'busy');
@@ -561,6 +667,7 @@ async function handleGenerate({ reuse = false } = {}) {
       throw new Error('生成接口未返回图片（status=' + status + '）。请确认后端 generate 已返回 images 数组。');
     }
     currentTask.run_id = resp.run_id || currentTask.run_id;
+    await refreshHistoryPanel({ force: true, sessionId: currentTask.task_id });
     renderResults(images);
     toast('生成完成：' + images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
@@ -610,8 +717,12 @@ $('results').addEventListener('click', e => {
 });
 
 /* 图片加载失败的全局兜底（个别候选图加载超时） */
-$('memoryBtn').addEventListener('click', () => toast('视觉记忆管理将在后续版本开放。', 'info'));
+$('historyRefreshBtn').addEventListener('click', () => refreshHistoryPanel({ force: true }));
 $('profileBtn').addEventListener('click', () => toast('审美画像功能将在后续版本开放。', 'info'));
 
-handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(refreshLoginUI);
+handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(() => {
+  refreshLoginUI();
+  refreshHistoryPanel();
+});
 refreshLoginUI();
+refreshHistoryPanel();

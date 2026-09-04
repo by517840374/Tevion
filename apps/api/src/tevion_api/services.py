@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as OrmSession
 
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
@@ -33,6 +33,40 @@ class OwnedImageVersion:
     session: Session
     run: GenerationRun
     image: ImageVersion
+
+
+@dataclass(frozen=True)
+class ProjectHistorySummary:
+    id: str
+    name: str
+    created_at: datetime
+    archived: bool
+    session_count: int
+
+
+@dataclass(frozen=True)
+class SessionHistorySummary:
+    id: str
+    project_id: str
+    mode: str
+    status: str
+    request: str
+    created_at: datetime
+    image_count: int
+    latest_image_id: str | None
+
+
+@dataclass(frozen=True)
+class VersionHistorySummary:
+    id: str
+    session_id: str
+    run_id: str
+    url: str
+    created_at: datetime
+    width: int | None
+    height: int | None
+    parent_image_id: str | None
+    is_current_lineage: bool
 
 
 def _ensure_default_project(db: OrmSession, user: User) -> Project:
@@ -129,6 +163,133 @@ def get_image_version_for_user(
         return None
     session, run, image = row
     return OwnedImageVersion(session=session, run=run, image=image)
+
+
+def get_project_for_user(db: OrmSession, user_id: str, project_id: str) -> Project | None:
+    return db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+
+
+def get_session_for_user(db: OrmSession, user_id: str, session_id: str) -> Session | None:
+    return db.scalar(
+        select(Session)
+        .join(Project, Session.project_id == Project.id)
+        .where(Session.id == session_id, Project.user_id == user_id)
+    )
+
+
+def list_projects_for_user(db: OrmSession, user_id: str) -> list[ProjectHistorySummary]:
+    rows = db.execute(
+        select(
+            Project.id,
+            Project.name,
+            Project.created_at,
+            Project.archived_at,
+            func.count(Session.id).label("session_count"),
+        )
+        .outerjoin(Session, Session.project_id == Project.id)
+        .where(Project.user_id == user_id)
+        .group_by(Project.id)
+        .order_by(Project.created_at.desc(), Project.id.desc())
+    ).all()
+    return [
+        ProjectHistorySummary(
+            id=row.id,
+            name=row.name,
+            created_at=row.created_at,
+            archived=row.archived_at is not None,
+            session_count=int(row.session_count or 0),
+        )
+        for row in rows
+    ]
+
+
+def list_sessions_for_project(db: OrmSession, user_id: str, project_id: str) -> list[SessionHistorySummary]:
+    if get_project_for_user(db, user_id, project_id) is None:
+        raise ValueError("project not found")
+
+    rows = db.execute(
+        select(
+            Session.id,
+            Session.project_id,
+            Session.mode,
+            Session.status,
+            Session.raw_request,
+            Session.created_at,
+            func.count(ImageVersion.id).label("image_count"),
+            func.max(ImageVersion.id).label("latest_image_id"),
+        )
+        .join(Project, Session.project_id == Project.id)
+        .outerjoin(GenerationRun, GenerationRun.session_id == Session.id)
+        .outerjoin(ImageVersion, ImageVersion.run_id == GenerationRun.id)
+        .where(Project.user_id == user_id, Session.project_id == project_id)
+        .group_by(Session.id)
+        .order_by(Session.created_at.desc(), Session.id.desc())
+    ).all()
+    return [
+        SessionHistorySummary(
+            id=row.id,
+            project_id=row.project_id,
+            mode=row.mode,
+            status=row.status,
+            request=row.raw_request or "",
+            created_at=row.created_at,
+            image_count=int(row.image_count or 0),
+            latest_image_id=row.latest_image_id,
+        )
+        for row in rows
+    ]
+
+
+def list_versions_for_session(
+    db: OrmSession, user_id: str, session_id: str, current_image_id: str | None = None
+) -> tuple[str, list[VersionHistorySummary]]:
+    session_row = get_session_for_user(db, user_id, session_id)
+    if session_row is None:
+        raise ValueError("session not found")
+
+    current_image: ImageVersion | None = None
+    lineage_ids: set[str] = set()
+    if current_image_id:
+        owned = get_image_version_for_user(db, user_id, session_id, current_image_id)
+        if owned is None:
+            raise ValueError("current image not found")
+        current_image = owned.image
+    else:
+        current_image = db.scalar(
+            select(ImageVersion)
+            .join(GenerationRun, ImageVersion.run_id == GenerationRun.id)
+            .where(GenerationRun.session_id == session_id)
+            .order_by(ImageVersion.created_at.desc(), ImageVersion.id.desc())
+            .limit(1)
+        )
+    while current_image is not None:
+        lineage_ids.add(current_image.id)
+        if not current_image.parent_image_id:
+            break
+        current_image = db.get(ImageVersion, current_image.parent_image_id)
+
+    rows = db.execute(
+        select(ImageVersion, GenerationRun)
+        .join(GenerationRun, ImageVersion.run_id == GenerationRun.id)
+        .join(Session, GenerationRun.session_id == Session.id)
+        .join(Project, Session.project_id == Project.id)
+        .where(Project.user_id == user_id, Session.id == session_id)
+        .order_by(ImageVersion.created_at.desc(), ImageVersion.id.desc())
+    ).all()
+    return session_row.project_id, [
+        VersionHistorySummary(
+            id=image.id,
+            session_id=session_id,
+            run_id=run.id,
+            url=image.asset_uri,
+            created_at=image.created_at,
+            width=image.width,
+            height=image.height,
+            parent_image_id=image.parent_image_id,
+            is_current_lineage=image.id in lineage_ids,
+        )
+        for image, run in rows
+    ]
 
 
 def record_feedback_event(

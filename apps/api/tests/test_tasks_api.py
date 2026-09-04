@@ -91,6 +91,56 @@ def _create(
     return user.id, project.id, session.id, image.id
 
 
+def _create_version_chain(db: OrmSession, *, subject: str) -> dict[str, str]:
+    user = m.User(auth_provider="oidc", provider_subject=subject)
+    db.add(user)
+    db.flush()
+    project = m.Project(user_id=user.id, name="历史项目")
+    db.add(project)
+    db.flush()
+
+    session_one = m.Session(project_id=project.id, mode="explore", raw_request="第一轮探索", status="awaiting_selection")
+    db.add(session_one)
+    db.flush()
+    run_one = m.GenerationRun(session_id=session_one.id, strategy_version="default", status="completed")
+    db.add(run_one)
+    db.flush()
+    image_one = m.ImageVersion(run_id=run_one.id, asset_uri="s3://tevion/image-1.png", width=1024, height=1280)
+    db.add(image_one)
+    db.flush()
+
+    session_two = m.Session(project_id=project.id, mode="refine", raw_request="保留光线，压背景", status="awaiting_selection")
+    db.add(session_two)
+    db.flush()
+    run_two = m.GenerationRun(
+        session_id=session_two.id,
+        parent_run_id=run_one.id,
+        strategy_version="default",
+        status="completed",
+        parameters_json={"parent_image_id": image_one.id},
+    )
+    db.add(run_two)
+    db.flush()
+    image_two = m.ImageVersion(
+        run_id=run_two.id,
+        parent_image_id=image_one.id,
+        asset_uri="s3://tevion/image-2.png",
+        width=1024,
+        height=1280,
+    )
+    db.add(image_two)
+    db.commit()
+
+    return {
+        "user_id": user.id,
+        "project_id": project.id,
+        "session_one_id": session_one.id,
+        "session_two_id": session_two.id,
+        "image_one_id": image_one.id,
+        "image_two_id": image_two.id,
+    }
+
+
 def test_create_task_persists_session_and_run(db_override: None) -> None:
     response = client.post(
         "/api/v1/tasks",
@@ -311,3 +361,70 @@ def test_refine_task_requires_existing_parent(db_override: None) -> None:
         headers=_auth("sub_refine_missing"),
     )
     assert response.status_code == 422
+
+
+def test_owner_can_query_projects_sessions_and_versions(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        chain = _create_version_chain(session, subject="sub_history_owner")
+    engine.dispose()
+
+    projects_response = client.get("/api/v1/projects", headers=_auth("sub_history_owner"))
+    assert projects_response.status_code == 200
+    projects = projects_response.json()["items"]
+    assert len(projects) == 1
+    assert projects[0]["id"] == chain["project_id"]
+    assert projects[0]["name"] == "历史项目"
+    assert projects[0]["session_count"] == 2
+
+    sessions_response = client.get(
+        f"/api/v1/projects/{chain['project_id']}/sessions",
+        headers=_auth("sub_history_owner"),
+    )
+    assert sessions_response.status_code == 200
+    sessions = sessions_response.json()["items"]
+    assert {item["id"] for item in sessions} == {chain["session_two_id"], chain["session_one_id"]}
+    latest_by_id = {item["id"]: item for item in sessions}
+    assert latest_by_id[chain["session_two_id"]]["latest_image_id"] == chain["image_two_id"]
+    assert latest_by_id[chain["session_two_id"]]["image_count"] == 1
+    assert latest_by_id[chain["session_one_id"]]["latest_image_id"] == chain["image_one_id"]
+
+    versions_response = client.get(
+        f"/api/v1/sessions/{chain['session_two_id']}/versions",
+        params={"current_image_id": chain["image_two_id"]},
+        headers=_auth("sub_history_owner"),
+    )
+    assert versions_response.status_code == 200
+    versions_body = versions_response.json()
+    assert versions_body["project_id"] == chain["project_id"]
+    assert versions_body["session_id"] == chain["session_two_id"]
+    assert versions_body["current_image_id"] == chain["image_two_id"]
+    versions = versions_body["items"]
+    assert [item["id"] for item in versions] == [chain["image_two_id"]]
+    assert versions[0]["parent_image_id"] == chain["image_one_id"]
+    assert versions[0]["is_current_lineage"] is True
+
+
+
+def test_other_user_cannot_query_projects_sessions_or_versions(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        chain = _create_version_chain(session, subject="sub_history_protected")
+    engine.dispose()
+
+    projects_response = client.get("/api/v1/projects", headers=_auth("sub_history_intruder"))
+    assert projects_response.status_code == 200
+    assert projects_response.json()["items"] == []
+
+    sessions_response = client.get(
+        f"/api/v1/projects/{chain['project_id']}/sessions",
+        headers=_auth("sub_history_intruder"),
+    )
+    assert sessions_response.status_code == 404
+
+    versions_response = client.get(
+        f"/api/v1/sessions/{chain['session_two_id']}/versions",
+        params={"current_image_id": chain["image_two_id"]},
+        headers=_auth("sub_history_intruder"),
+    )
+    assert versions_response.status_code == 404

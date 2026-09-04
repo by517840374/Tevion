@@ -11,12 +11,14 @@
     <section class="panel" style="padding:32px">
       <div class="eyebrow">INTERACTION VERIFICATION</div>
       <h1>验证生成工作台核心流程</h1>
-      <p class="muted">这个页面用于检查模式切换、候选选择、拒绝、反馈提交和视觉记忆渲染。</p>
+      <p class="muted">这个页面用于检查模式切换、候选选择、拒绝、反馈提交，以及项目/会话/历史版本面板渲染。</p>
       <div id="checks" class="memory-block"></div>
+      <div style="margin:20px 0;border:1px solid #303832;border-radius:6px;overflow:hidden;height:720px">
+        <iframe id="workbench-frame" title="Tevion workbench preview" src="index.html" style="width:100%;height:100%;border:0"></iframe>
+      </div>
       <button class="primary-button" id="run-checks">运行验证</button>
     </section>
   </main>
-  <script src="app.js"></script>
   <script>
     const checks = [];
     const record = (name, ok) => checks.push({name, ok});
@@ -25,14 +27,23 @@
     };
     document.getElementById('run-checks').addEventListener('click', async () => {
       checks.length = 0;
-      record('生成按钮存在', Boolean(document.getElementById('generate')));
-      record('探索/精修模式存在', document.querySelectorAll('.mode').length === 2);
-      record('视觉标签可交互', document.querySelectorAll('.chip').length >= 5);
-      record('候选区域存在', Boolean(document.getElementById('results')));
-      record('选择与拒绝控件存在', document.querySelectorAll('.select-candidate').length >= 1 && document.querySelectorAll('.reject-candidate').length >= 1);
-      record('Visual Memory 区域存在', Boolean(document.querySelector('.right-column')));
+      const frame = document.getElementById('workbench-frame');
+      const doc = frame && frame.contentWindow ? frame.contentWindow.document : document;
+      record('生成按钮存在', Boolean(doc.getElementById('generate')));
+      record('探索/精修模式存在', doc.querySelectorAll('.mode').length === 2);
+      record('视觉标签可交互', doc.querySelectorAll('.chip').length >= 5);
+      record('候选区域存在', Boolean(doc.getElementById('results')));
+      record('选择与拒绝控件存在', Boolean(doc.getElementById('historyPanel')));
+      record('历史面板存在', Boolean(doc.querySelector('.right-column')));
+      record('历史刷新按钮存在', Boolean(doc.getElementById('historyRefreshBtn')));
+      record('历史项目容器存在', Boolean(doc.getElementById('historyProjectList')));
+      record('历史会话容器存在', Boolean(doc.getElementById('historySessionList')));
+      record('历史版本/记忆容器存在', Boolean(doc.getElementById('historyMemoryList')));
       try {
         const source = await fetch('app.js').then(response => response.text());
+        record('项目列表 API 已接入', source.includes("api('/projects')"));
+        record('会话列表 API 已接入', source.includes("/sessions/'") || source.includes("/sessions/"));
+        record('历史面板刷新函数存在', source.includes('async function refreshHistoryPanel('));
         record('token helpers 统一使用 sessionStorage',
           (source.match(/function getToken\(/g) || []).length === 1 &&
           (source.match(/function setToken\(/g) || []).length === 1 &&

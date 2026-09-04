@@ -22,9 +22,15 @@ from .schemas import (
     PreferenceListResponse,
     PreferenceView,
     ProductMetadata,
+    ProjectListResponse,
+    ProjectSummary,
+    SessionListResponse,
+    SessionSummary,
     TaskDetail,
     TaskStatus,
     TaskSummary,
+    VersionListResponse,
+    VersionSummary,
 )
 
 app = FastAPI(title="Tevion Product API", version="0.1.0")
@@ -104,6 +110,7 @@ def create_task(
         task_id=created.session.id,
         run_id=created.run.id,
         user_id=current_user.id,
+        project_id=created.session.project_id,
         status=TaskStatus(created.session.status),
         request=created.session.raw_request or "",
         mode=created.session.mode,
@@ -251,6 +258,90 @@ def get_preferences(
             for item in projected
         ]
     )
+
+
+@app.get("/api/v1/projects", response_model=ProjectListResponse)
+def list_projects(
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> dict[str, object]:
+    projects = services.list_projects_for_user(db, current_user.id)
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "name": item.name,
+                "created_at": item.created_at,
+                "archived": item.archived,
+                "session_count": item.session_count,
+            }
+            for item in projects
+        ]
+    }
+
+
+@app.get("/api/v1/projects/{project_id}/sessions", response_model=SessionListResponse)
+def list_project_sessions(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        sessions = services.list_sessions_for_project(db, current_user.id, project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "project_id": item.project_id,
+                "mode": item.mode,
+                "status": TaskStatus(item.status),
+                "request": item.request,
+                "created_at": item.created_at,
+                "image_count": item.image_count,
+                "latest_image_id": item.latest_image_id,
+            }
+            for item in sessions
+        ]
+    }
+
+
+@app.get("/api/v1/sessions/{session_id}/versions", response_model=VersionListResponse)
+def list_session_versions(
+    session_id: str,
+    current_image_id: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        project_id, versions = services.list_versions_for_session(
+            db,
+            current_user.id,
+            session_id,
+            current_image_id=current_image_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "project_id": project_id,
+        "session_id": session_id,
+        "current_image_id": current_image_id,
+        "items": [
+            {
+                "id": item.id,
+                "session_id": item.session_id,
+                "run_id": item.run_id,
+                "url": item.url,
+                "created_at": item.created_at,
+                "width": item.width,
+                "height": item.height,
+                "parent_image_id": item.parent_image_id,
+                "is_current_lineage": item.is_current_lineage,
+            }
+            for item in versions
+        ],
+    }
 
 
 @app.get("/api/v1/tasks/{task_id}/runtime")

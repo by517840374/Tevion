@@ -40,6 +40,7 @@ class TaskSummary(BaseModel):
     task_id: str
     run_id: str
     user_id: str
+    project_id: str | None = None
     status: TaskStatus
     request: str
     mode: str
@@ -149,3 +150,49 @@ class PreferenceView(BaseModel):
 
 class PreferenceListResponse(BaseModel):
     items: list[PreferenceView] = Field(default_factory=list)
+
+
+class ProjectSummary(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    archived: bool = False
+    session_count: int = 0
+
+
+class ProjectListResponse(BaseModel):
+    items: list[ProjectSummary] = Field(default_factory=list)
+
+
+class SessionSummary(BaseModel):
+    id: str
+    project_id: str
+    mode: str
+    status: TaskStatus
+    request: str
+    created_at: datetime
+    image_count: int = 0
+    latest_image_id: str | None = None
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionSummary] = Field(default_factory=list)
+
+
+class VersionSummary(BaseModel):
+    id: str
+    session_id: str
+    run_id: str
+    url: str
+    created_at: datetime
+    width: int | None = None
+    height: int | None = None
+    parent_image_id: str | None = None
+    is_current_lineage: bool = False
+
+
+class VersionListResponse(BaseModel):
+    project_id: str
+    session_id: str
+    current_image_id: str | None = None
+    items: list[VersionSummary] = Field(default_factory=list)

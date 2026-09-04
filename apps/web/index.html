@@ -65,13 +65,23 @@
       </div>
     </section>
 
-    <aside class="right-column panel">
-      <div class="eyebrow">VISUAL MEMORY</div>
-      <h2>Agent 对你的理解</h2>
-      <p class="muted intro">基于本项目最近 12 次选择</p>
-      <div class="memory-block"><div class="memory-title"><span>你经常选择</span><span class="confidence">高置信</span></div><div class="memory-tags"><span>柔和侧光</span><span>半身构图</span><span>低饱和</span><span>简洁背景</span><span>自然皮肤</span></div></div>
-      <div class="memory-block dim"><div class="memory-title"><span>你较少选择</span><span class="confidence low">待确认</span></div><div class="memory-tags"><span>强闪光灯</span><span>复杂街景</span><span>过度成熟</span></div></div>
-      <div class="memory-footer"><span class="memory-pulse"></span><p>每次明确反馈都会更新项目记忆。<br><button class="text-button" id="memoryBtn">管理记忆 →</button></p></div>
+    <aside class="right-column panel" id="historyPanel">
+      <div class="eyebrow">HISTORY</div>
+      <h2>当前项目与历史版本</h2>
+      <p class="muted intro" id="historyIntro">登录后可从真实 API 查询项目、会话和版本摘要。</p>
+      <div class="memory-block">
+        <div class="memory-title"><span>当前项目</span><span class="confidence" id="historyProjectBadge">未加载</span></div>
+        <div id="historyProjectList"><p class="muted">等待加载。</p></div>
+      </div>
+      <div class="memory-block dim">
+        <div class="memory-title"><span>会话与版本</span><span class="confidence low" id="historySessionBadge">未加载</span></div>
+        <div id="historySessionList"><p class="muted">生成后会显示当前会话及已生成版本。</p></div>
+      </div>
+      <div class="memory-block dim">
+        <div class="memory-title"><span>项目记忆</span><span class="confidence low" id="historyMemoryBadge">未加载</span></div>
+        <div id="historyMemoryList"><p class="muted">反馈后可读取项目偏好摘要。</p></div>
+      </div>
+      <div class="memory-footer"><span class="memory-pulse"></span><p>历史查询与偏好读取都来自真实后端。<br><button class="text-button" id="historyRefreshBtn">刷新历史 →</button></p></div>
     </aside>
   </main>
 

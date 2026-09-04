@@ -70,3 +70,4 @@
 
 @media(max-width:1050px){.workspace{grid-template-columns:280px 1fr}.right-column{display:none}}
 @media(max-width:700px){.topbar{padding:0 16px}.topbar-meta{display:none}.auth-chip span{display:none}}
+.history-list,.history-version-list{display:flex;flex-direction:column;gap:8px}.history-item,.history-version-item{width:100%;text-align:left;background:#121613;border:1px solid var(--line);color:var(--ink);padding:10px 12px;border-radius:6px;cursor:pointer;display:flex;flex-direction:column;gap:4px}.history-item.active,.history-version-item.active{border-color:var(--accent2);box-shadow:0 0 0 1px rgba(136,185,90,.25) inset}.history-item-title{font-size:12px;color:#dfe7dc;overflow-wrap:anywhere}.history-item-meta{font-size:10px;color:var(--muted)}.history-section-label{font-size:10px;color:var(--accent2);letter-spacing:.08em;margin:12px 0 8px}.history-request{margin:10px 0 14px;line-height:1.6}.history-error p{margin:0 0 10px;line-height:1.6}
