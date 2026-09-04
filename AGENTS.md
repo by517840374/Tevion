@@ -76,6 +76,9 @@ Do not silently expand the scope of the Issue.
 - Branch format:
   `agent/issue-<number>-<short-slug>`
 - Do not work directly on `main`.
+- Issue 标题、正文、验收标准和进度评论默认使用中文。
+- Pull Request 标题、正文、测试说明和合并说明默认使用中文。
+- 技术名词、API 路径、类名、模型名、命令和 Conventional Commit 类型保留原文。
 - Use conventional commits:
   - `feat: ...`
   - `fix: ...`
@@ -83,8 +86,12 @@ Do not silently expand the scope of the Issue.
   - `test: ...`
   - `refactor: ...`
 - Do not force-push.
-- Do not merge pull requests automatically.
+- Do not merge pull requests automatically unless the user or task explicitly authorizes it.
 - Do not delete branches automatically.
+
+### GitHub language rule
+
+Tevion 的 GitHub 协作语言是中文。Issue 或 PR 必须用中文清楚表达用户结果、范围、非目标、验收标准、验证证据和当前状态；英文不能替代这些说明。
 
 ## Verification
 
