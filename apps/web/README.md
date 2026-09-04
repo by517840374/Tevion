@@ -25,7 +25,7 @@ python3 -m http.server 8080 --directory apps/web
 http://127.0.0.1:8010/api/v1
 ```
 
-API client 已集中在 `app.js` 顶部，后续应改为可配置值，不要写入生产密钥。
+API client 已集中在 `app.js` 顶部，地址可配置；不要写入生产密钥。
 
 ## 迁移说明
 原型来源于 `/Users/adtiger/Tevion-frontend`。外部目录仅作为迁移备份，维护版本以本目录为准。
@@ -34,7 +34,6 @@ API client 已集中在 `app.js` 顶部，后续应改为可配置值，不要�
 前端 Issue 只能修改 `apps/web/**`。如果需要新的后端接口，应创建或关联 `area:backend` Issue。只有明确标记为 `area:integration` 的 Issue 才能同时修改前后端。
 
 ## 当前已知缺口
-- 反馈提交 API 仍依赖后端契约是否完整
-- Visual Memory 需要后端返回真实偏好数据
-- 真实 OIDC 登录尚未接入，目前使用 dev-token
-- `verification.html` 仍需继续完善为无后端依赖的浏览器验收页
+- 真实 Provider 生成和 PostgreSQL 运行环境仍需按部署配置启用；静态前端本身不提供离线生成
+- 真实 OIDC 登录契约已接入，生产环境仍需配置 OIDC provider；本地演示可使用 dev-token
+- `verification.html` 用于无后端依赖的静态交互验收；真实 API 闭环仍需可用的后端和认证配置
