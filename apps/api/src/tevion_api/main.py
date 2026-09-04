@@ -13,6 +13,7 @@ from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
 from .schemas import (
     CreateTaskRequest,
     DevTokenResponse,
+    AuthUserResponse,
     FeedbackRequest,
     FeedbackResponse,
     GenerateResponse,
@@ -65,6 +66,17 @@ def dev_token() -> DevTokenResponse:
     if settings.jwks_url or not settings.dev_secret:
         raise HTTPException(status_code=503, detail="dev token endpoint is disabled")
     return DevTokenResponse(access_token=create_dev_token("demo_user"))
+
+
+@app.get("/api/v1/auth/me", response_model=AuthUserResponse)
+def auth_me(current_user: User = Depends(get_current_user)) -> AuthUserResponse:
+    return AuthUserResponse(
+        id=current_user.id,
+        auth_provider=current_user.auth_provider,
+        provider_subject=current_user.provider_subject,
+        email=current_user.email,
+        display_name=current_user.display_name,
+    )
 
 
 @app.post("/api/v1/tasks", response_model=TaskSummary, status_code=202)

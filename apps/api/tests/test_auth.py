@@ -67,6 +67,23 @@ def test_create_task_without_token_is_rejected() -> None:
     assert response.status_code == 401
 
 
+def test_auth_me_returns_current_local_user(db_override: None) -> None:
+    token = _token(sub="me_subject", email="me@example.com")
+
+    response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert response.json()["provider_subject"] == "me_subject"
+    assert response.json()["email"] == "me@example.com"
+
+
+def test_auth_errors_have_stable_generic_detail() -> None:
+    response = client.get("/api/v1/auth/me")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "authentication failed"
+
+
 def test_create_task_with_garbage_token_is_rejected() -> None:
     response = client.post(
         "/api/v1/tasks",

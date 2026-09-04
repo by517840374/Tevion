@@ -2,7 +2,9 @@
  * 后端地址如有变化，只需修改 API_BASE。
  */
 const API_BASE = window.TEVION_API_BASE || 'http://127.0.0.1:8010/api/v1';
+const OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
 const TOKEN_KEY = 'tevion_token';
+const OIDC_TRANSACTION_KEY = 'tevion_oidc_transaction';
 
 /* ---------- 小工具 ---------- */
 const $ = id => document.getElementById(id);
@@ -48,6 +50,7 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
   }
   if (!res.ok) {
+    if (res.status === 401) clearToken();
     const detail = (data && (data.detail || data.message)) || '';
     const msg = friendlyHttpError(res.status) + (detail ? '（' + String(detail).slice(0, 200) + '）' : '');
     const e = new Error(msg);
@@ -66,9 +69,56 @@ function friendlyHttpError(status) {
 }
 
 /* ---------- 登录态 ---------- */
-function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
-function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-function clearToken() { localStorage.removeItem(TOKEN_KEY); }
+function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
+function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
+
+function randomString(bytes = 32) {
+  const values = new Uint8Array(bytes);
+  crypto.getRandomValues(values);
+  return btoa(String.fromCharCode(...values)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function pkceChallenge(verifier) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function startOidcLogin() {
+  if (!OIDC_CONFIG || !OIDC_CONFIG.authorization_endpoint || !OIDC_CONFIG.client_id) return false;
+  const state = randomString();
+  const codeVerifier = randomString(48);
+  const codeChallenge = await pkceChallenge(codeVerifier);
+  sessionStorage.setItem(OIDC_TRANSACTION_KEY, JSON.stringify({ state, codeVerifier }));
+  const params = new URLSearchParams({
+    response_type: 'code', client_id: OIDC_CONFIG.client_id,
+    redirect_uri: OIDC_CONFIG.redirect_uri || window.location.href.split('?')[0],
+    scope: OIDC_CONFIG.scope || 'openid profile email', state,
+    code_challenge: codeChallenge, code_challenge_method: 'S256',
+  });
+  window.location.assign(OIDC_CONFIG.authorization_endpoint + '?' + params);
+  return true;
+}
+
+async function handleOidcCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return false;
+  const transaction = JSON.parse(sessionStorage.getItem(OIDC_TRANSACTION_KEY) || 'null');
+  sessionStorage.removeItem(OIDC_TRANSACTION_KEY);
+  if (!transaction || params.get('state') !== transaction.state) throw new Error('OIDC state 校验失败。');
+  if (!OIDC_CONFIG || !OIDC_CONFIG.token_endpoint) throw new Error('OIDC token endpoint 未配置。');
+  const body = new URLSearchParams({ grant_type: 'authorization_code', code,
+    redirect_uri: OIDC_CONFIG.redirect_uri || window.location.href.split('?')[0],
+    client_id: OIDC_CONFIG.client_id, code_verifier: transaction.codeVerifier });
+  const response = await fetch(OIDC_CONFIG.token_endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  if (!response.ok) throw new Error('OIDC token exchange 失败。');
+  const data = await response.json();
+  if (!data.access_token) throw new Error('OIDC token exchange 未返回 access_token。');
+  setToken(data.access_token);
+  window.history.replaceState({}, document.title, window.location.pathname);
+  return true;
+}
 
 function refreshLoginUI() {
   const has = !!getToken();
@@ -84,6 +134,7 @@ function refreshLoginUI() {
 
 async function handleLogin() {
   if (busy) return;
+  if (await startOidcLogin()) return;
   const btn = $('loginBtn');
   btn.disabled = true;
   btn.textContent = '登录中…';
@@ -520,4 +571,4 @@ $('results').addEventListener('click', e => {
 $('memoryBtn').addEventListener('click', () => toast('视觉记忆管理将在后续版本开放。', 'info'));
 $('profileBtn').addEventListener('click', () => toast('审美画像功能将在后续版本开放。', 'info'));
 
-refreshLoginUI();
+handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(refreshLoginUI);
