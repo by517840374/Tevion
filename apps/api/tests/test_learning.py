@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from tevion_api.learning import FeedbackEvidence, PreferenceProjector
 
 
@@ -55,3 +57,31 @@ def test_deletion_tombstone_removes_preference() -> None:
     ]
 
     assert projector.project(events) == []
+
+
+def test_preference_projection_metadata_is_stable() -> None:
+    projector = PreferenceProjector()
+    events = [
+        FeedbackEvidence(
+            scope="project",
+            scope_id="project_1",
+            key="lighting",
+            value="soft",
+            source="explicit_feedback",
+        ),
+        FeedbackEvidence(
+            scope="project",
+            scope_id="project_1",
+            key="lighting",
+            value="soft",
+            source="selection",
+        ),
+    ]
+
+    projection = projector.project(events)
+
+    assert projection[0].scope == "project"
+    assert projection[0].scope_id == "project_1"
+    assert projection[0].source == "explicit_feedback"
+    assert projection[0].evidence_count == 2
+    assert projection[0].weight == 1.7
