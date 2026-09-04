@@ -13,7 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from .models import GenerationRun, ImageVersion, Project, Session, User
-from .provider import GenerationRequest, GenerationResult, ImageGenerationProvider
+from .provider import (
+    GenerationRequest,
+    GenerationResult,
+    ImageGenerationProvider,
+    ProviderResponseError,
+)
 
 
 @dataclass(frozen=True)
@@ -97,7 +102,8 @@ def execute_generation(
 ) -> list[ImageVersion]:
     """Run one real generation and persist every output image version.
 
-    Mutates run and session status along the way; caller commits.
+    Mutates run and session status; failure is recorded on the run and
+    re-raised so the API can map it to an HTTP error.
     """
     session, run = task.session, task.run
     parameters = run.parameters_json or {}
@@ -113,7 +119,20 @@ def execute_generation(
         aspect_ratio=str(parameters.get("aspect_ratio") or "1:1"),
         quality=str(parameters.get("quality") or "low"),
     )
-    result: GenerationResult = provider.generate(request)
+    try:
+        result: GenerationResult = provider.generate(request)
+    except ProviderResponseError as exc:
+        run.status = "failed"
+        run.error_code = "provider_error"
+        run.error_message = str(exc)
+        db.commit()
+        raise
+    except Exception as exc:  # noqa: BLE001 - record any provider failure
+        run.status = "failed"
+        run.error_code = "internal"
+        run.error_message = str(exc)[:2000]
+        db.commit()
+        raise
 
     images: list[ImageVersion] = []
     width, height = _parse_pixel_size((result.metadata or {}).get("size"))
@@ -135,7 +154,7 @@ def execute_generation(
     run.estimated_cost = result.cost
     run.completed_at = datetime.now(timezone.utc)
     session.status = "awaiting_selection"
-    db.flush()
+    db.commit()
     for image in images:
         db.refresh(image)
     return images
