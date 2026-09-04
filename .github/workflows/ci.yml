@@ -7,6 +7,23 @@ on:
 jobs:
   api:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+psycopg://tevion:tevion_ci@localhost:5432/tevion
+      TEST_DATABASE_URL: postgresql+psycopg://tevion:tevion_ci@localhost:5432/tevion_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tevion
+          POSTGRES_PASSWORD: tevion_ci
+          POSTGRES_DB: tevion
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tevion -d tevion"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     defaults:
       run:
         working-directory: apps/api
@@ -22,6 +39,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
           pip install ruff
+
+      - name: Create isolated test database
+        run: >-
+          python -c "from sqlalchemy import create_engine, text; e=create_engine('postgresql+psycopg://tevion:tevion_ci@localhost:5432/tevion'); c=e.connect(); c.execution_options(isolation_level='AUTOCOMMIT').execute(text('CREATE DATABASE tevion_test OWNER tevion')); c.close(); e.dispose()"
 
       - name: Run tests
         run: pytest -q
