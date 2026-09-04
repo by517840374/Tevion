@@ -57,6 +57,33 @@ class ImageSummary(BaseModel):
     parent_image_id: str | None = None
 
 
+class ProjectSummary(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+
+
+class ProjectListResponse(BaseModel):
+    items: list[ProjectSummary] = Field(default_factory=list)
+
+
+class SessionSummary(BaseModel):
+    id: str
+    project_id: str
+    mode: str
+    status: str
+    request: str
+    created_at: datetime
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionSummary] = Field(default_factory=list)
+
+
+class ImageVersionListResponse(BaseModel):
+    items: list[ImageSummary] = Field(default_factory=list)
+
+
 class TaskDetail(BaseModel):
     task_id: str
     status: TaskStatus
