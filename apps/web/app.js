@@ -9,6 +9,7 @@ const $ = id => document.getElementById(id);
 let busy = false;
 let currentTask = null;   // { task_id, request, mode, aspect_ratio, output_count }
 let chosenId = null;      // 当前高亮的候选图 id
+let lastFeedbackIntent = null;
 let elapsedTimer = null;
 let genStartedAt = 0;
 
@@ -202,6 +203,7 @@ function renderResults(images) {
             (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
           '</div>' +
           '<button class="select-candidate" data-select="' + escapeHtml(img.id) + '">选择</button>' +
+          '<button class="reject-candidate" data-reject="' + escapeHtml(img.id) + '">拒绝</button>' +
         '</div>' +
       '</article>'
     );
@@ -213,7 +215,7 @@ function renderResults(images) {
       '<div class="result-actions"><span class="muted" id="selectionNote"></span><button class="regen-button" id="regenerate">重新生成 ↻</button><span class="live-pill"><span class="status-dot"></span> 已完成</span></div>' +
     '</div>' +
     '<div class="candidate-grid">' + cards + '</div>' +
-    '<p class="result-hint">选择不是考试。你的选择会告诉 Agent：这张图的脸、光影、气质或构图，哪一部分更接近你。</p>';
+    '<p class="result-hint">选择、拒绝和继续当前方向都会提交为反馈事件，帮助 Agent 更快收敛。</p>';
 
   // 图片加载完成 → 淡入（灰底占位 → 真实图）
   r.querySelectorAll('.img-wrap').forEach(wrap => {
@@ -230,35 +232,163 @@ function renderResults(images) {
   $('regenerate').addEventListener('click', () => handleGenerate({ reuse: true }));
   setBusy(false);
   setAgentPill('已生成 ' + images.length + ' 张候选', 'done');
-  setCheckpoint('候选已生成：选择一张作为你的方向，或点击「重新生成」继续探索。');
+  setCheckpoint('候选已生成：选择、拒绝或重新生成都将留下反馈记录。');
 }
 
 /* ---------- 候选选择（事件委托） ---------- */
+async function submitFeedback(action, targetId, extra = {}) {
+  if (!currentTask || !currentTask.task_id) {
+    toast('当前没有可提交反馈的任务。', 'error');
+    return null;
+  }
+  const payload = {
+    version_id: targetId,
+    selected: action === 'select' ? true : action === 'reject' ? false : null,
+    rejected: action === 'reject' ? true : action === 'select' ? false : null,
+    continue_direction: extra.continue_direction || (action === 'continue' ? 'continue current direction' : null),
+    rejection_reason: extra.rejection_reason || (action === 'reject' ? '不符合当前方向' : null),
+  };
+  return await api(`/tasks/${currentTask.task_id}/feedback`, { method: 'POST', body: payload });
+}
+
+function renderFeedbackStatus(text, canRetry = false) {
+  let box = document.getElementById('feedbackStatus');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'feedbackStatus';
+    box.className = 'memory-block';
+    const top = document.querySelector('.result-top');
+    if (top && top.parentNode) top.parentNode.insertBefore(box, top.nextSibling);
+  }
+  box.textContent = text;
+  let retry = document.getElementById('feedbackRetry');
+  if (!retry) {
+    retry = document.createElement('button');
+    retry.id = 'feedbackRetry';
+    retry.className = 'secondary-button';
+    retry.textContent = '重试提交反馈';
+    retry.addEventListener('click', () => {
+      if (lastFeedbackIntent) handleCandidateAction(lastFeedbackIntent.action, lastFeedbackIntent.id);
+    });
+    box.appendChild(document.createElement('br'));
+    box.appendChild(retry);
+  }
+  retry.hidden = !canRetry;
+}
+
+async function refreshVisualMemory() {
+  if (!currentTask || !currentTask.task_id) return;
+  const right = document.querySelector('.right-column');
+  if (!right) return;
+  try {
+    const data = await api(`/preferences?scope=project&task_id=${encodeURIComponent(currentTask.task_id)}`);
+    const items = Array.isArray(data && data.items) ? data.items : [];
+    const grouped = items.reduce((acc, item) => {
+      const scope = item.scope || 'project';
+      (acc[scope] ||= []).push(item);
+      return acc;
+    }, {});
+    const makeTags = list => list.length
+      ? '<div class="memory-tags">' + list.map(item => '<span>' + escapeHtml(item.key + ': ' + item.value) + '</span>').join('') + '</div>'
+      : '<p class="muted">暂无可见记忆。</p>';
+    right.innerHTML =
+      '<div class="eyebrow">VISUAL MEMORY</div>' +
+      '<h2>Agent 对你的理解</h2>' +
+      '<p class="muted intro">来自偏好查询端点的项目记忆</p>' +
+      '<div class="memory-block"><div class="memory-title"><span>项目偏好</span><span class="confidence">' + items.length + ' 条</span></div>' +
+      makeTags(grouped.project || []) + '</div>' +
+      '<div class="memory-block dim"><div class="memory-title"><span>会话偏好</span><span class="confidence low">' + (grouped.session ? grouped.session.length : 0) + ' 条</span></div>' +
+      makeTags(grouped.session || []) + '</div>' +
+      '<div class="memory-footer"><span class="memory-pulse"></span><p>反馈后会从后端读取最新偏好。<br><button class="text-button" id="memoryBtn">刷新记忆 →</button></p></div>';
+    right.querySelector('#memoryBtn').addEventListener('click', refreshVisualMemory);
+  } catch (err) {
+    right.querySelector('.intro').textContent = '记忆读取失败：' + err.message;
+  }
+}
+
+async function handleCandidateAction(action, id) {
+  if (!id) return;
+  lastFeedbackIntent = { action, id };
+  renderFeedbackStatus(action === 'reject' ? '正在提交“拒绝”反馈…' : action === 'continue' ? '正在提交“继续当前方向”反馈…' : '正在提交“选择候选”反馈…', false);
+  try {
+    const payload = action === 'reject'
+      ? { rejection_reason: '不符合当前方向' }
+      : { continue_direction: 'continue current direction' };
+    const resp = await submitFeedback(action === 'continue' ? 'select' : action, id, payload);
+    if (action === 'reject') {
+      setCardState(id, '已拒绝');
+      $('selectionNote').textContent = '已拒绝 ' + id + ' · 反馈已提交';
+      toast('已提交拒绝反馈：' + id, 'success', 3000);
+    } else if (action === 'continue') {
+      $('selectionNote').textContent = '继续当前方向 · 反馈已提交';
+      toast('已提交继续当前方向反馈', 'success', 3000);
+    } else {
+      chosenId = id;
+      setCardState(id, '已选择 ✓');
+      $('selectionNote').textContent = '已选择 ' + id + ' · 反馈已提交';
+      toast('已提交选择反馈：' + id, 'success', 3000);
+    }
+    renderFeedbackStatus('反馈已提交。', false);
+    if (resp) await refreshVisualMemory();
+  } catch (err) {
+    renderFeedbackStatus('反馈提交失败：' + err.message, true);
+    toast('反馈提交失败：' + err.message, 'error', 9000);
+    $('selectionNote').textContent = '反馈提交失败，可重试';
+  }
+}
+
+function setCardState(id, label) {
+  const card = Array.from(document.querySelectorAll('#results .candidate')).find(item => item.dataset.id === id);
+  if (!card) return;
+  const selected = label.includes('选择');
+  card.classList.toggle('chosen', selected);
+  card.classList.toggle('rejected', !selected);
+  const selectButton = card.querySelector('.select-candidate');
+  const rejectButton = card.querySelector('.reject-candidate');
+  if (selectButton) selectButton.textContent = selected ? '已选择 ✓' : '选择';
+  if (rejectButton) rejectButton.textContent = selected ? '拒绝' : '已拒绝';
+  card.querySelector('.chosen-flag')?.remove();
+  card.querySelector('.rejected-flag')?.remove();
+  const flag = document.createElement('div');
+  flag.className = selected ? 'chosen-flag' : 'rejected-flag';
+  flag.textContent = label;
+  card.querySelector('.img-wrap')?.appendChild(flag);
+}
+
 function selectCandidate(id) {
-  if (busy || chosenId === id) return;
+  if (busy) return;
   chosenId = id;
   document.querySelectorAll('#results .candidate').forEach(card => {
-    const flag = card.querySelector('.chosen-flag');
-    if (card.dataset.id === id) {
-      card.classList.add('chosen');
-      const btn = card.querySelector('.select-candidate');
-      if (btn) btn.textContent = '已选择 ✓';
-      if (!flag) {
-        const wrap = card.querySelector('.img-wrap');
-        const f = document.createElement('div');
-        f.className = 'chosen-flag';
-        f.textContent = '已选择 ✓';
-        wrap.appendChild(f);
-      }
-    } else {
+    if (card.dataset.id !== id) {
       card.classList.remove('chosen');
       const btn = card.querySelector('.select-candidate');
       if (btn) btn.textContent = '选择';
-      if (flag) flag.remove();
+      card.querySelector('.chosen-flag')?.remove();
     }
   });
-  $('selectionNote').textContent = '已选择 ' + id + ' · 可换一张或重新生成';
-  toast('已选择候选：' + id, 'success', 3000);
+  setCardState(id, '已选择 ✓');
+  $('selectionNote').textContent = '已选择 ' + id + ' · 正在提交到反馈 API…';
+  renderFeedbackStatus('正在提交“选择候选”反馈…', false);
+  handleCandidateAction('select', id);
+}
+
+function rejectCandidate(id) {
+  if (busy) return;
+  const card = Array.from(document.querySelectorAll('#results .candidate')).find(item => item.dataset.id === id);
+  if (card) {
+    card.classList.add('rejected');
+    const btn = card.querySelector('.reject-candidate');
+    if (btn) btn.textContent = '已拒绝';
+    if (!card.querySelector('.rejected-flag')) {
+      const wrap = card.querySelector('.img-wrap');
+      const f = document.createElement('div');
+      f.className = 'rejected-flag';
+      f.textContent = '已拒绝';
+      wrap.appendChild(f);
+    }
+  }
+  $('selectionNote').textContent = '已拒绝 ' + id + ' · 正在提交到反馈 API…';
+  handleCandidateAction('reject', id);
 }
 
 /* ---------- 主流程：创建任务 → 生成 ---------- */
@@ -284,11 +414,18 @@ async function handleGenerate({ reuse = false } = {}) {
     if (!request) return;
     const mode = document.querySelector('.mode.active').dataset.mode;
     currentTask = { request, mode, aspect_ratio: $('ratio').value, output_count: Number($('count').value) };
+    if (mode === 'refine' && !reuse) {
+      if (!chosenId) {
+        toast('精修前请先选择一张候选图。', 'error');
+        return;
+      }
+      currentTask.parent_version_id = chosenId;
+    }
   }
   if (!currentTask || !currentTask.task_id && !reuse && !currentTask.request) return;
 
   setBusy(true);
-  chosenId = null;
+  if (reuse) chosenId = null;
 
   try {
     // 1) 建任务（未复用旧任务时）
@@ -300,9 +437,11 @@ async function handleGenerate({ reuse = false } = {}) {
         request: currentTask.request,
         mode: currentTask.mode,
         output_count: currentTask.output_count,
-        aspect_ratio: currentTask.aspect_ratio
+        aspect_ratio: currentTask.aspect_ratio,
+        ...(currentTask.parent_version_id ? { parent_version_id: currentTask.parent_version_id } : {})
       }});
       currentTask.task_id = created.task_id;
+      currentTask.run_id = created.run_id;
       showEcho(currentTask.request);
       setCheckpoint('需求已记录（任务 ' + currentTask.task_id + '），开始生成候选…');
       setAgentPill('需求已记录，开始生成', 'busy');
@@ -328,6 +467,7 @@ async function handleGenerate({ reuse = false } = {}) {
       const status = (resp && resp.status) || '';
       throw new Error('生成接口未返回图片（status=' + status + '）。请确认后端 generate 已返回 images 数组。');
     }
+    currentTask.run_id = resp.run_id || currentTask.run_id;
     renderResults(images);
     toast('生成完成：' + images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
@@ -368,7 +508,12 @@ $('loginBtn').addEventListener('click', handleLogin);
 $('logoutBtn').addEventListener('click', handleLogout);
 $('results').addEventListener('click', e => {
   const sel = e.target.closest('[data-select]');
-  if (sel) selectCandidate(sel.dataset.select);
+  if (sel) {
+    selectCandidate(sel.dataset.select);
+    return;
+  }
+  const reject = e.target.closest('[data-reject]');
+  if (reject) rejectCandidate(reject.dataset.reject);
 });
 
 /* 图片加载失败的全局兜底（个别候选图加载超时） */

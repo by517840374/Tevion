@@ -154,7 +154,7 @@ def test_repeated_valid_token_reuses_same_user(db_override: None) -> None:
 
     first = client.post(
         "/api/v1/tasks",
-        json={"request": "a", "mode": "refine", "output_count": 2},
+        json={"request": "a", "mode": "explore", "output_count": 2},
         headers={"Authorization": f"Bearer {token}"},
     )
     second = client.post(

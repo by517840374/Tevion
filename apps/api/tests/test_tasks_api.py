@@ -252,3 +252,47 @@ def test_task_requires_auth(db_override: None) -> None:
         json={"version_id": "image_unknown", "selected": True},
     ).status_code == 401
     assert client.get("/api/v1/preferences", params={"scope": "project", "task_id": "session_unknown"}).status_code == 401
+
+
+def test_refine_task_preserves_parent_lineage(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        _, _, parent_task_id, parent_image_id = _create(session, subject="sub_refine")
+        parent_run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == parent_task_id))
+        assert parent_run is not None
+    engine.dispose()
+
+    response = client.post(
+        "/api/v1/tasks",
+        json={
+            "request": "保留脸部和光线，简化背景",
+            "mode": "refine",
+            "parent_version_id": parent_image_id,
+            "output_count": 2,
+            "aspect_ratio": "4:5",
+        },
+        headers=_auth("sub_refine"),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["mode"] == "refine"
+    assert body["parent_image_id"] == parent_image_id
+    assert body["parent_run_id"] == parent_run.id
+
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        child_run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == body["task_id"]))
+        assert child_run is not None
+        assert child_run.parent_run_id == parent_run.id
+        assert child_run.parameters_json["parent_image_id"] == parent_image_id
+    engine.dispose()
+
+
+def test_refine_task_requires_existing_parent(db_override: None) -> None:
+    response = client.post(
+        "/api/v1/tasks",
+        json={"request": "精修", "mode": "refine", "parent_version_id": "image_missing"},
+        headers=_auth("sub_refine_missing"),
+    )
+    assert response.status_code == 422

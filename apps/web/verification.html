@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tevion frontend interaction verification</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -10,7 +11,7 @@
     <section class="panel" style="padding:32px">
       <div class="eyebrow">INTERACTION VERIFICATION</div>
       <h1>验证生成工作台核心流程</h1>
-      <p class="muted">这个页面用于检查私有原型中的模式切换、标签选择、候选生成和候选选择。</p>
+      <p class="muted">这个页面用于检查模式切换、候选选择、拒绝、反馈提交和视觉记忆渲染。</p>
       <div id="checks" class="memory-block"></div>
       <button class="primary-button" id="run-checks">运行验证</button>
     </section>
@@ -23,9 +24,9 @@
       record('生成按钮存在', Boolean(document.getElementById('generate')));
       record('探索/精修模式存在', document.querySelectorAll('.mode').length === 2);
       record('视觉标签可交互', document.querySelectorAll('.chip').length >= 5);
-      record('验证页与当前原型结构一致', !document.getElementById('demoFill'));
       record('候选区域存在', Boolean(document.getElementById('results')));
-      record('候选选择委托已绑定', Boolean(document.getElementById('results')));
+      record('选择与拒绝控件存在', document.querySelectorAll('.select-candidate').length >= 1 && document.querySelectorAll('.reject-candidate').length >= 1);
+      record('Visual Memory 区域存在', Boolean(document.querySelector('.right-column')));
       document.getElementById('checks').innerHTML = checks.map(c => `<p>${c.ok ? '✓' : '✗'} ${c.name}</p>`).join('');
     });
   </script>
