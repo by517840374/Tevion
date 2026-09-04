@@ -112,6 +112,13 @@ class FeedbackRequest(BaseModel):
         return self
 
 
+class FeedbackResponse(BaseModel):
+    event_id: str
+    task_id: str
+    version_id: str
+    event_type: str
+
+
 PreferenceScope = Literal["project", "session", "user"]
 
 

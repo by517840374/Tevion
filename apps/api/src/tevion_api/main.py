@@ -14,6 +14,7 @@ from .schemas import (
     CreateTaskRequest,
     DevTokenResponse,
     FeedbackRequest,
+    FeedbackResponse,
     GenerateResponse,
     HealthResponse,
     ImageSummary,
@@ -151,13 +152,13 @@ def get_task(
     )
 
 
-@app.post("/api/v1/tasks/{task_id}/feedback", status_code=status.HTTP_201_CREATED)
+@app.post("/api/v1/tasks/{task_id}/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
 def create_feedback(
     task_id: str,
     payload: FeedbackRequest,
     current_user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
-) -> dict[str, object]:
+) -> FeedbackResponse:
     event_type = "selected" if payload.selected else "rejected"
     try:
         event = services.record_feedback_event(
@@ -176,12 +177,12 @@ def create_feedback(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    return {
-        "event_id": event.id,
-        "task_id": task_id,
-        "version_id": payload.version_id,
-        "event_type": event.event_type,
-    }
+    return FeedbackResponse(
+        event_id=event.id,
+        task_id=task_id,
+        version_id=payload.version_id,
+        event_type=event.event_type,
+    )
 
 
 @app.get("/api/v1/preferences", response_model=PreferenceListResponse)
