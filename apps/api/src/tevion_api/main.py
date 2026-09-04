@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
@@ -13,9 +13,12 @@ from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
 from .schemas import (
     CreateTaskRequest,
     DevTokenResponse,
+    FeedbackRequest,
     GenerateResponse,
     HealthResponse,
     ImageSummary,
+    PreferenceListResponse,
+    PreferenceView,
     ProductMetadata,
     TaskDetail,
     TaskStatus,
@@ -145,6 +148,72 @@ def get_task(
         aspect_ratio=params.get("aspect_ratio"),
         created_at=task.session.created_at,
         images=_image_summaries(db, task.run.id),
+    )
+
+
+@app.post("/api/v1/tasks/{task_id}/feedback", status_code=status.HTTP_201_CREATED)
+def create_feedback(
+    task_id: str,
+    payload: FeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> dict[str, object]:
+    event_type = "selected" if payload.selected else "rejected"
+    try:
+        event = services.record_feedback_event(
+            db,
+            user=current_user,
+            task_id=task_id,
+            image_version_id=payload.version_id,
+            event_type=event_type,
+            payload={
+                "selected": bool(payload.selected),
+                "rejected": bool(payload.rejected),
+                "rejection_reason": payload.rejection_reason,
+                "direction": payload.continue_direction,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        "event_id": event.id,
+        "task_id": task_id,
+        "version_id": payload.version_id,
+        "event_type": event.event_type,
+    }
+
+
+@app.get("/api/v1/preferences", response_model=PreferenceListResponse)
+def get_preferences(
+    scope: str = Query(..., pattern="^(project|session|user)$"),
+    task_id: str = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> PreferenceListResponse:
+    try:
+        projected = services.project_preferences_for_task(
+            db,
+            user_id=current_user.id,
+            task_id=task_id,
+            scope=scope,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return PreferenceListResponse(
+        items=[
+            PreferenceView(
+                key=item.key,
+                value=item.value,
+                source=item.source,
+                confidence=item.weight,
+                scope=item.scope,
+                scope_id=item.scope_id,
+                evidence_count=item.evidence_count,
+            )
+            for item in projected
+        ]
     )
 
 
