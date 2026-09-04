@@ -156,6 +156,7 @@ def create_task(
             current_user,
             request=payload.request,
             mode=payload.mode,
+            project_id=payload.project_id,
             parent_version_id=payload.parent_version_id,
             parameters={
                 "output_count": payload.output_count,
@@ -163,6 +164,8 @@ def create_task(
                 "quality": "low",
             },
         )
+    except services.ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return TaskSummary(
