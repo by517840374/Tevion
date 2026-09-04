@@ -7,6 +7,14 @@ const OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
 const TOKEN_KEY = 'tevion_token';
 const OIDC_TRANSACTION_KEY = 'tevion_oidc_transaction';
 
+function getTokenStorage() {
+  return sessionStorage;
+}
+
+function getToken() { return getTokenStorage().getItem(TOKEN_KEY) || ''; }
+function setToken(t) { getTokenStorage().setItem(TOKEN_KEY, t); }
+function clearToken() { getTokenStorage().removeItem(TOKEN_KEY); }
+
 /* ---------- 小工具 ---------- */
 const $ = id => document.getElementById(id);
 let busy = false;
@@ -140,9 +148,6 @@ async function handleOidcCallback() {
   window.history.replaceState({}, document.title, window.location.pathname);
   return true;
 }
-function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
-function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-function clearToken() { localStorage.removeItem(TOKEN_KEY); }
 
 function refreshLoginUI() {
   const has = !!getToken();
