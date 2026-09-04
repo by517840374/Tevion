@@ -98,6 +98,7 @@ function renderHistoryMessage(message, error = false) {
 }
 
 function renderHistoryOptions(select, items, emptyText) {
+  if (!select) return;
   select.innerHTML = '';
   if (!items.length) {
     select.appendChild(new Option(emptyText, ''));

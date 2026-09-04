@@ -20,6 +20,7 @@
     <button id="generate"></button><button id="loginBtn"></button><button id="logoutBtn"></button>
     <button id="memoryBtn"></button><button id="profileBtn"></button>
     <div id="authChip"></div><p id="loginHint"></p><div id="results"></div>
+    <div id="historyPanel"><p id="historyStatus"></p><select id="historyProject"></select><select id="historySession"></select><div id="historyVersions"></div></div>
   </div>
   <script src="app.js"></script>
   <script>
@@ -54,6 +55,7 @@
         record('失败/取消清理 callback URL', source.includes('} finally {') && source.includes('sanitizeOidcCallbackUrl();'));
         record('清理 code/state/error 且不泄露敏感值', ['code', 'state', 'error'].every(key => source.includes("url.searchParams.delete('" + key + "')")) && !source.includes('console.log(code)'));
         record('历史查询使用 sessionStorage token 与 api()', source.includes("api('/projects')") && source.includes("api('/projects/' + encodeURIComponent(projectId) + '/sessions')") && source.includes("api('/sessions/' + encodeURIComponent(sessionId) + '/versions')") && source.includes('getToken()'));
+        record('历史查询按项目→会话→版本顺序串联', source.indexOf("api('/projects')") < source.indexOf("/projects/' + encodeURIComponent(projectId) + '/sessions") && source.indexOf("/projects/' + encodeURIComponent(projectId) + '/sessions") < source.indexOf("/sessions/' + encodeURIComponent(sessionId) + '/versions"));
         record('历史版本展示 parent_image_id lineage', source.includes('parent_image_id') && source.includes('history-parent'));
         record('历史接口失败提供可恢复提示', source.includes('后端接口就绪后可重试') && source.includes('可重新选择会话重试'));
       } catch {
