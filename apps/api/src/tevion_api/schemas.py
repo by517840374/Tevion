@@ -84,6 +84,14 @@ class DevTokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class AuthUserResponse(BaseModel):
+    id: str
+    auth_provider: str
+    provider_subject: str
+    email: str | None = None
+    display_name: str | None = None
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     service: str = "tevion-api"
