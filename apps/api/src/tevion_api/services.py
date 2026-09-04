@@ -1,18 +1,11 @@
-"""Task service: persistence boundary between the API and ORM models.
-
-A "task" maps to one Session plus its initial GenerationRun. The session owns
-the product conversation (mode, raw request); the run owns one generation
-attempt (strategy version, provider, cost). Both rows are created together so
-the task is reconstructable from day one.
-"""
-
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from .models import GenerationRun, ImageVersion, Project, Session, User
+from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
+from .models import FeedbackEvent, GenerationRun, ImageVersion, PreferenceEvent, Project, Session, User
 from .provider import (
     GenerationRequest,
     GenerationResult,
@@ -25,6 +18,13 @@ from .provider import (
 class CreatedTask:
     session: Session
     run: GenerationRun
+
+
+@dataclass(frozen=True)
+class OwnedImageVersion:
+    session: Session
+    run: GenerationRun
+    image: ImageVersion
 
 
 def _ensure_default_project(db: OrmSession, user: User) -> Project:
@@ -46,13 +46,34 @@ def create_task(
     mode: str,
     parameters: dict | None = None,
     strategy_version: str = "default",
+    parent_version_id: str | None = None,
 ) -> CreatedTask:
     project = _ensure_default_project(db, user)
+    parent_run_id = None
+    if mode == "refine":
+        if not parent_version_id:
+            raise ValueError("parent image is required for refine")
+        parent = db.scalar(
+            select(ImageVersion)
+            .join(GenerationRun, ImageVersion.run_id == GenerationRun.id)
+            .join(Session, GenerationRun.session_id == Session.id)
+            .join(Project, Session.project_id == Project.id)
+            .where(
+                ImageVersion.id == parent_version_id,
+                Session.project_id == project.id,
+                Project.user_id == user.id,
+            )
+        )
+        if parent is None:
+            raise ValueError("parent image not found")
+        parent_run_id = parent.run_id
+        parameters = {**(parameters or {}), "parent_image_id": parent.id}
     session = Session(project_id=project.id, mode=mode, raw_request=request, status="created")
     db.add(session)
     db.flush()
     run = GenerationRun(
         session_id=session.id,
+        parent_run_id=parent_run_id,
         strategy_version=strategy_version,
         status="created",
         parameters_json=parameters,
@@ -81,6 +102,146 @@ def get_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask
         return None
     session, run = row
     return CreatedTask(session=session, run=run)
+
+
+def get_image_version_for_user(db: OrmSession, user_id: str, task_id: str, image_version_id: str) -> OwnedImageVersion | None:
+    row = db.execute(
+        select(Session, GenerationRun, ImageVersion)
+        .join(Project, Session.project_id == Project.id)
+        .join(GenerationRun, GenerationRun.session_id == Session.id)
+        .join(ImageVersion, ImageVersion.run_id == GenerationRun.id)
+        .where(
+            Session.id == task_id,
+            Project.user_id == user_id,
+            ImageVersion.id == image_version_id,
+        )
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    session, run, image = row
+    return OwnedImageVersion(session=session, run=run, image=image)
+
+
+def record_feedback_event(
+    db: OrmSession,
+    *,
+    user: User,
+    task_id: str,
+    image_version_id: str,
+    event_type: str,
+    payload: dict,
+) -> FeedbackEvent:
+    owned = get_image_version_for_user(db, user.id, task_id, image_version_id)
+    if owned is None:
+        raise ValueError("task or image not found")
+
+    event = FeedbackEvent(
+        user_id=user.id,
+        session_id=owned.session.id,
+        image_version_id=owned.image.id,
+        event_type=event_type,
+        payload_json=payload,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+def list_feedback_events_for_task(db: OrmSession, *, user_id: str, task_id: str) -> list[FeedbackEvent]:
+    return list(
+        db.scalars(
+            select(FeedbackEvent)
+            .join(Session, FeedbackEvent.session_id == Session.id)
+            .join(Project, Session.project_id == Project.id)
+            .where(
+                FeedbackEvent.session_id == task_id,
+                Project.user_id == user_id,
+            )
+            .order_by(FeedbackEvent.created_at, FeedbackEvent.id)
+        )
+    )
+
+
+def _feedback_to_evidence(feedback: FeedbackEvent, *, project_id: str) -> list[FeedbackEvidence]:
+    payload = feedback.payload_json or {}
+    evidences: list[FeedbackEvidence] = []
+
+    direction = payload.get("direction")
+    if isinstance(direction, str) and direction.strip():
+        evidences.append(
+            FeedbackEvidence(
+                scope="session",
+                scope_id=feedback.session_id,
+                key="direction",
+                value=direction.strip(),
+                source="explicit_feedback",
+            )
+        )
+
+    rejection_reason = payload.get("rejection_reason")
+    if isinstance(rejection_reason, str) and rejection_reason.strip():
+        evidences.append(
+            FeedbackEvidence(
+                scope="project",
+                scope_id=project_id,
+                key="rejection_reason",
+                value=rejection_reason.strip(),
+                source="tagged_feedback",
+            )
+        )
+
+    selected = payload.get("selected")
+    if selected is True:
+        evidences.append(
+            FeedbackEvidence(
+                scope="project",
+                scope_id=project_id,
+                key="image_version_id",
+                value=feedback.image_version_id,
+                source="selection",
+            )
+        )
+
+    return evidences
+
+
+def project_preferences_for_task(db: OrmSession, *, user_id: str, task_id: str, scope: str) -> list[ProjectedPreference]:
+    task = get_task_for_user(db, user_id, task_id)
+    if task is None:
+        raise ValueError("task not found")
+
+    events = list_feedback_events_for_task(db, user_id=user_id, task_id=task_id)
+    evidence: list[FeedbackEvidence] = []
+    for event in events:
+        evidence.extend(_feedback_to_evidence(event, project_id=task.session.project_id))
+
+    scope_id = (
+        task.session.project_id if scope == "project" else task.session.id if scope == "session" else None
+    )
+    for pref_event in db.scalars(
+        select(PreferenceEvent)
+        .where(
+            PreferenceEvent.user_id == user_id,
+            PreferenceEvent.scope == scope,
+            PreferenceEvent.scope_id == scope_id,
+        )
+        .order_by(PreferenceEvent.created_at, PreferenceEvent.id)
+    ):
+        evidence.append(
+            FeedbackEvidence(
+                scope=pref_event.scope,
+                scope_id=pref_event.scope_id,
+                key=pref_event.key,
+                value=pref_event.value,
+                source=pref_event.source,
+                deleted=pref_event.deleted,
+            )
+        )
+
+    projected = PreferenceProjector().project(evidence)
+    return [item for item in projected if item.scope == scope]
 
 
 def _parse_pixel_size(size: str | None) -> tuple[int | None, int | None]:
@@ -139,6 +300,7 @@ def execute_generation(
     for asset_uri in result.asset_urls:
         image = ImageVersion(
             run_id=run.id,
+            parent_image_id=parameters.get("parent_image_id"),
             asset_uri=asset_uri,
             width=width,
             height=height,

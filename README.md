@@ -16,8 +16,9 @@ Tevion 的长期目标不是简单封装图像 API，而是成为能够从用户
 ## 仓库现状
 
 - `apps/api/`：后端基础设施和领域契约。
+- `apps/web/`：已验证的前端视觉探索工作台；当前保持零依赖静态原型。
 - `docs/`：产品文档、架构文档和决策记录。
-- 前端代码在早期产品探索阶段暂不放入本仓库。目前本地原型位于：`/Users/adtiger/Tevion-frontend`。
+- 早期原型备份保留在：`/Users/adtiger/Tevion-frontend`；仓库内 `apps/web/` 是维护版本。
 - `README.en.md`：英文版说明文档。
 
 ## 第一阶段暂不包含的内容
@@ -38,7 +39,7 @@ pip install -e '.[dev]'
 uvicorn tevion_api.main:app --reload
 ```
 
-当前 API 只提供健康检查和产品元数据接口。生成 Provider 的集成将在领域契约和 UX 经过评审后，通过后续 Issue 开展。
+当前 API 已提供健康检查、产品元数据、认证、任务创建、任务生成、任务查询、运行时快照、反馈写入和偏好查询接口；前端工作台已接入候选反馈与 Visual Memory 展示。Issue #24、#28、#29、#30 的实现已合并到 `origin/main`；这些 Issue 的 GitHub 状态仍以 Issue 页面为准，本次只同步文档，不关闭 Issue。
 
 ## 本地数据库（Docker 运行 PostgreSQL）
 

@@ -148,6 +148,40 @@ def test_generate_persists_images_and_updates_status(db_override: None) -> None:
     engine.dispose()
 
 
+def test_refine_generation_preserves_parent_image_lineage(db_override: None) -> None:
+    parent_task_id = _create_task(sub="sub_refine_generate")
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        parent_run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == parent_task_id))
+        assert parent_run is not None
+        parent_run_id = parent_run.id
+        parent_image = m.ImageVersion(run_id=parent_run_id, asset_uri="s3://tevion/parent.png")
+        session.add(parent_image)
+        session.commit()
+        parent_image_id = parent_image.id
+    engine.dispose()
+
+    response = client.post(
+        "/api/v1/tasks",
+        json={"request": "保留主体，精修背景", "mode": "refine", "parent_version_id": parent_image_id, "output_count": 2},
+        headers=_auth("sub_refine_generate"),
+    )
+    assert response.status_code == 202
+    child_task_id = response.json()["task_id"]
+    generated = client.post(f"/api/v1/tasks/{child_task_id}/generate", headers=_auth("sub_refine_generate"))
+    assert generated.status_code == 200
+    assert all(image["parent_image_id"] == parent_image_id for image in generated.json()["images"])
+
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        child_run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == child_task_id))
+        assert child_run is not None
+        assert child_run.parent_run_id == parent_run_id
+        children = session.scalars(select(m.ImageVersion).where(m.ImageVersion.run_id == child_run.id)).all()
+        assert children and all(image.parent_image_id == parent_image_id for image in children)
+    engine.dispose()
+
+
 def test_generate_by_other_user_is_404(db_override: None) -> None:
     task_id = _create_task(sub="sub_owner_gen")
 

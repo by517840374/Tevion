@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
@@ -13,9 +13,14 @@ from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
 from .schemas import (
     CreateTaskRequest,
     DevTokenResponse,
+    AuthUserResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     GenerateResponse,
     HealthResponse,
     ImageSummary,
+    PreferenceListResponse,
+    PreferenceView,
     ProductMetadata,
     TaskDetail,
     TaskStatus,
@@ -63,31 +68,49 @@ def dev_token() -> DevTokenResponse:
     return DevTokenResponse(access_token=create_dev_token("demo_user"))
 
 
+@app.get("/api/v1/auth/me", response_model=AuthUserResponse)
+def auth_me(current_user: User = Depends(get_current_user)) -> AuthUserResponse:
+    return AuthUserResponse(
+        id=current_user.id,
+        auth_provider=current_user.auth_provider,
+        provider_subject=current_user.provider_subject,
+        email=current_user.email,
+        display_name=current_user.display_name,
+    )
+
+
 @app.post("/api/v1/tasks", response_model=TaskSummary, status_code=202)
 def create_task(
     payload: CreateTaskRequest,
     current_user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> TaskSummary:
-    created = services.create_task(
-        db,
-        current_user,
-        request=payload.request,
-        mode=payload.mode,
-        parameters={
-            "output_count": payload.output_count,
-            "aspect_ratio": payload.aspect_ratio,
-            "quality": "low",
-        },
-    )
+    try:
+        created = services.create_task(
+            db,
+            current_user,
+            request=payload.request,
+            mode=payload.mode,
+            parent_version_id=payload.parent_version_id,
+            parameters={
+                "output_count": payload.output_count,
+                "aspect_ratio": payload.aspect_ratio,
+                "quality": "low",
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return TaskSummary(
         task_id=created.session.id,
+        run_id=created.run.id,
         user_id=current_user.id,
         status=TaskStatus(created.session.status),
         request=created.session.raw_request or "",
         mode=created.session.mode,
         output_count=payload.output_count,
         aspect_ratio=payload.aspect_ratio,
+        parent_image_id=(created.run.parameters_json or {}).get("parent_image_id"),
+        parent_run_id=created.run.parent_run_id,
     )
 
 
@@ -96,7 +119,7 @@ def _image_summaries(db: OrmSession, run_id: str) -> list[ImageSummary]:
         select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at)
     ).all()
     return [
-        ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height)
+        ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height, parent_image_id=image.parent_image_id)
         for image in rows
     ]
 
@@ -117,8 +140,9 @@ def generate_task(
         task_id=task.session.id,
         status=TaskStatus(task.session.status),
         run_id=task.run.id,
+        parent_run_id=task.run.parent_run_id,
         images=[
-            ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height)
+            ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height, parent_image_id=image.parent_image_id)
             for image in images
         ],
     )
@@ -140,11 +164,78 @@ def get_task(
         mode=task.session.mode,
         request=task.session.raw_request or "",
         run_id=task.run.id,
+        parent_run_id=task.run.parent_run_id,
         strategy_version=task.run.strategy_version,
         output_count=params.get("output_count"),
         aspect_ratio=params.get("aspect_ratio"),
         created_at=task.session.created_at,
         images=_image_summaries(db, task.run.id),
+    )
+
+
+@app.post("/api/v1/tasks/{task_id}/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
+def create_feedback(
+    task_id: str,
+    payload: FeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> FeedbackResponse:
+    event_type = "selected" if payload.selected else "rejected"
+    try:
+        event = services.record_feedback_event(
+            db,
+            user=current_user,
+            task_id=task_id,
+            image_version_id=payload.version_id,
+            event_type=event_type,
+            payload={
+                "selected": bool(payload.selected),
+                "rejected": bool(payload.rejected),
+                "rejection_reason": payload.rejection_reason,
+                "direction": payload.continue_direction,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FeedbackResponse(
+        event_id=event.id,
+        task_id=task_id,
+        version_id=payload.version_id,
+        event_type=event.event_type,
+    )
+
+
+@app.get("/api/v1/preferences", response_model=PreferenceListResponse)
+def get_preferences(
+    scope: str = Query(..., pattern="^(project|session|user)$"),
+    task_id: str = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> PreferenceListResponse:
+    try:
+        projected = services.project_preferences_for_task(
+            db,
+            user_id=current_user.id,
+            task_id=task_id,
+            scope=scope,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return PreferenceListResponse(
+        items=[
+            PreferenceView(
+                key=item.key,
+                value=item.value,
+                source=item.source,
+                confidence=item.weight,
+                scope=item.scope,
+                scope_id=item.scope_id,
+                evidence_count=item.evidence_count,
+            )
+            for item in projected
+        ]
     )
 
 

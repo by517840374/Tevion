@@ -108,7 +108,7 @@ def decode_token(token: str, settings: AuthSettings | None = None) -> dict[str, 
 
 
 def _unauthorized(detail: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authentication failed")
 
 
 def get_current_user(

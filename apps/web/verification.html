@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tevion frontend interaction verification</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="workspace" style="display:block;max-width:720px;padding:40px">
+    <section class="panel" style="padding:32px">
+      <div class="eyebrow">INTERACTION VERIFICATION</div>
+      <h1>验证生成工作台核心流程</h1>
+      <p class="muted">这个页面用于检查模式切换、候选选择、拒绝、反馈提交和视觉记忆渲染。</p>
+      <div id="checks" class="memory-block"></div>
+      <button class="primary-button" id="run-checks">运行验证</button>
+    </section>
+  </main>
+  <script src="app.js"></script>
+  <script>
+    const checks = [];
+    const record = (name, ok) => checks.push({name, ok});
+    const renderChecks = () => {
+      document.getElementById('checks').innerHTML = checks.map(c => `<p>${c.ok ? '✓' : '✗'} ${c.name}</p>`).join('');
+    };
+    document.getElementById('run-checks').addEventListener('click', async () => {
+      checks.length = 0;
+      record('生成按钮存在', Boolean(document.getElementById('generate')));
+      record('探索/精修模式存在', document.querySelectorAll('.mode').length === 2);
+      record('视觉标签可交互', document.querySelectorAll('.chip').length >= 5);
+      record('候选区域存在', Boolean(document.getElementById('results')));
+      record('选择与拒绝控件存在', document.querySelectorAll('.select-candidate').length >= 1 && document.querySelectorAll('.reject-candidate').length >= 1);
+      record('Visual Memory 区域存在', Boolean(document.querySelector('.right-column')));
+      try {
+        const source = await fetch('app.js').then(response => response.text());
+        record('token helpers 统一使用 sessionStorage',
+          (source.match(/function getToken\(/g) || []).length === 1 &&
+          (source.match(/function setToken\(/g) || []).length === 1 &&
+          (source.match(/function clearToken\(/g) || []).length === 1 &&
+          source.includes('function getToken() { return sessionStorage.getItem(TOKEN_KEY) || \'\'; }') &&
+          !source.includes('localStorage.getItem(TOKEN_KEY)'));
+        record('401 清理调用统一 clearToken', /if \(res\.status === 401\) clearToken\(\);/.test(source));
+        record('OIDC callback 使用相同 setToken helper', /setToken\(data\.access_token\);/.test(source));
+        const exchange = source.indexOf('fetch(OIDC_CONFIG.token_endpoint');
+        const consume = source.indexOf('sessionStorage.removeItem(OIDC_TRANSACTION_KEY)');
+        record('token exchange 前保留 transaction', exchange >= 0 && consume > exchange);
+        record('成功消费 transaction', source.indexOf('setToken(data.access_token)') < consume);
+        record('失败/取消清理 callback URL', source.includes('} finally {') && source.includes('sanitizeOidcCallbackUrl();'));
+        record('清理 code/state/error 且不泄露敏感值', ['code', 'state', 'error'].every(key => source.includes("url.searchParams.delete('" + key + "')")) && !source.includes('console.log(code)'));
+      } catch {
+        record('token storage focused checks 可读取 app.js', false);
+      }
+      renderChecks();
+    });
+  </script>
+</body>
+</html>
