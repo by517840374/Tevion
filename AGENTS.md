@@ -20,10 +20,21 @@ The first product direction focuses on clearly adult male portraits with fresh y
 
 - Backend code lives under `apps/api/`.
 - Product and architecture documentation lives under `docs/`.
-- Frontend exploration is intentionally outside this repository at:
-  `/Users/adtiger/Tevion-frontend`
-- Do not add frontend code to this repository unless the issue explicitly changes this rule.
+- The maintained frontend prototype lives under `apps/web/`.
+- `/Users/adtiger/Tevion-frontend` is a migration backup only; do not modify it
+  unless an Issue explicitly requests backup synchronization.
 - Do not modify files outside the repository unless the issue explicitly requires it.
+
+## Agent ownership boundaries
+
+- Frontend Issues may modify `apps/web/**` and frontend-specific docs only.
+- Backend Issues may modify `apps/api/**`, backend migrations, and backend docs.
+- Only Issues explicitly labeled `area:integration` may modify both
+  `apps/web/**` and `apps/api/**`.
+- A backend Agent must not modify frontend code to hide a missing API contract.
+- A frontend Agent must not modify backend code, migrations, Docker, or
+  database configuration.
+- Reviewers must reject changes outside the Issue's declared area.
 
 ## Development flow
 

@@ -16,7 +16,7 @@ The product owns projects, sessions, candidate comparison, feedback, memory, and
 
 **Status:** Accepted
 
-The agent can interpret, plan, generate, evaluate, and propose a retry, but the server controls transitions, budgets, privacy, safety gates, and retry limits.
+The agent can interpret, plan, generate, evaluate, and propose a bounded retry, but the server controls transitions, budgets, privacy, safety gates, and retry limits.
 
 ## ADR-004: Separate memory scopes
 
@@ -26,9 +26,9 @@ Session instructions, project/persona preferences, user-wide preferences, and gl
 
 ## ADR-005: Frontend remains private during interaction discovery
 
-**Status:** Accepted
+**Status:** Superseded by ADR-008
 
-The initial frontend prototype is stored at `/Users/adtiger/Tevion-frontend`, outside the GitHub repository. This allows rapid UX exploration without prematurely publishing an unstable product surface. Once the interaction model is validated, it can be moved into `apps/web/` or a separate private repository.
+The initial frontend prototype was stored at `/Users/adtiger/Tevion-frontend`, outside the GitHub repository, while the interaction model was being validated.
 
 ## ADR-006: Feedback is a product primitive
 
@@ -40,4 +40,18 @@ Candidate selection, comparison, rejection reason, edit request, download, and c
 
 **Status:** Accepted
 
-Tevion uses an external OAuth 2.0 / OpenID Connect identity provider for login and credential management. The frontend sends an access token as `Authorization: Bearer <access_token>`. FastAPI uses HTTP Bearer extraction plus JWT/JWKS claim validation, then maps `(auth_provider, provider_subject)` to a local `users.id`. Tevion does not store the external password. Product authorization and resource ownership remain local to Tevion.
+Tevion uses an external OAuth 2.0 / OpenID Connect identity provider for login and credential management. The frontend sends an access token as `Authorization: Bearer ***`. FastAPI uses HTTP Bearer extraction plus JWT/JWKS claim validation, then maps `(auth_provider, provider_subject)` to a local `users.id`. Tevion does not store the external password. Product authorization and resource ownership remain local to Tevion.
+
+## ADR-008: Move the validated frontend prototype into the monorepo
+
+**Status:** Accepted
+
+The validated, dependency-free frontend prototype is maintained at `apps/web/` in the Tevion repository. This creates one versioned product workspace while preserving the current static prototype shape until UX validation justifies a Vite/React migration.
+
+Frontend and backend remain separate ownership areas:
+
+- Frontend Issues modify `apps/web/**`.
+- Backend Issues modify `apps/api/**` and relevant backend migrations.
+- Only explicitly labeled `area:integration` Issues may modify both areas.
+
+The original `/Users/adtiger/Tevion-frontend` directory is retained as a migration backup and is not part of the runtime source of truth.
