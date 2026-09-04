@@ -30,6 +30,7 @@ class TaskStatus(StrEnum):
 class CreateTaskRequest(BaseModel):
     request: str = Field(min_length=1, max_length=4000)
     project_id: str | None = None
+    parent_version_id: str | None = None
     mode: str = Field(default="explore", pattern="^(explore|refine)$")
     output_count: int = Field(default=4, ge=2, le=4)
     aspect_ratio: str = Field(default="4:5", pattern=r"^\d+:\d+$")
@@ -37,12 +38,15 @@ class CreateTaskRequest(BaseModel):
 
 class TaskSummary(BaseModel):
     task_id: str
+    run_id: str
     user_id: str
     status: TaskStatus
     request: str
     mode: str
     output_count: int
     aspect_ratio: str
+    parent_image_id: str | None = None
+    parent_run_id: str | None = None
 
 
 class ImageSummary(BaseModel):
@@ -50,6 +54,7 @@ class ImageSummary(BaseModel):
     url: str
     width: int | None = None
     height: int | None = None
+    parent_image_id: str | None = None
 
 
 class TaskDetail(BaseModel):
@@ -58,6 +63,7 @@ class TaskDetail(BaseModel):
     mode: str
     request: str
     run_id: str
+    parent_run_id: str | None = None
     strategy_version: str
     output_count: int | None = None
     aspect_ratio: str | None = None
@@ -69,6 +75,7 @@ class GenerateResponse(BaseModel):
     task_id: str
     status: TaskStatus
     run_id: str
+    parent_run_id: str | None = None
     images: list[ImageSummary] = Field(default_factory=list)
 
 

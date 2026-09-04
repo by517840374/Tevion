@@ -46,13 +46,34 @@ def create_task(
     mode: str,
     parameters: dict | None = None,
     strategy_version: str = "default",
+    parent_version_id: str | None = None,
 ) -> CreatedTask:
     project = _ensure_default_project(db, user)
+    parent_run_id = None
+    if mode == "refine":
+        if not parent_version_id:
+            raise ValueError("parent image is required for refine")
+        parent = db.scalar(
+            select(ImageVersion)
+            .join(GenerationRun, ImageVersion.run_id == GenerationRun.id)
+            .join(Session, GenerationRun.session_id == Session.id)
+            .join(Project, Session.project_id == Project.id)
+            .where(
+                ImageVersion.id == parent_version_id,
+                Session.project_id == project.id,
+                Project.user_id == user.id,
+            )
+        )
+        if parent is None:
+            raise ValueError("parent image not found")
+        parent_run_id = parent.run_id
+        parameters = {**(parameters or {}), "parent_image_id": parent.id}
     session = Session(project_id=project.id, mode=mode, raw_request=request, status="created")
     db.add(session)
     db.flush()
     run = GenerationRun(
         session_id=session.id,
+        parent_run_id=parent_run_id,
         strategy_version=strategy_version,
         status="created",
         parameters_json=parameters,
@@ -279,6 +300,7 @@ def execute_generation(
     for asset_uri in result.asset_urls:
         image = ImageVersion(
             run_id=run.id,
+            parent_image_id=parameters.get("parent_image_id"),
             asset_uri=asset_uri,
             width=width,
             height=height,
