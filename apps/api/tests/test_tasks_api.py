@@ -91,6 +91,86 @@ def _create(
     return user.id, project.id, session.id, image.id
 
 
+def test_owner_can_list_project_summaries_without_other_users_projects(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        owner_id, project_id, _, _ = _create(session, subject="sub_project_owner")
+        _, other_project_id, _, _ = _create(session, subject="sub_project_other")
+    engine.dispose()
+
+    response = client.get("/api/v1/projects", headers=_auth("sub_project_owner"))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "id": project_id,
+                "name": "默认项目",
+                "description": None,
+            }
+        ]
+    }
+    assert owner_id.startswith("user_")
+    assert other_project_id not in {item["id"] for item in response.json()["items"]}
+
+
+def test_project_sessions_and_session_versions_are_owned_and_include_lineage(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        _, project_id, session_id, image_id = _create(session, subject="sub_history_owner")
+        second_session = m.Session(
+            project_id=project_id,
+            mode="refine",
+            raw_request="继续调整",
+            status="awaiting_selection",
+        )
+        session.add(second_session)
+        session.flush()
+        run = m.GenerationRun(session_id=second_session.id, strategy_version="default", status="completed")
+        session.add(run)
+        session.flush()
+        child = m.ImageVersion(
+            run_id=run.id,
+            parent_image_id=image_id,
+            asset_uri="s3://tevion/image-2.png",
+            width=1024,
+            height=1280,
+        )
+        session.add(child)
+        session.commit()
+        second_session_id = second_session.id
+        child_id = child.id
+    engine.dispose()
+
+    sessions_response = client.get(f"/api/v1/projects/{project_id}/sessions", headers=_auth("sub_history_owner"))
+    assert sessions_response.status_code == 200
+    assert [item["id"] for item in sessions_response.json()["items"]] == [session_id, second_session_id]
+    assert sessions_response.json()["items"][1]["project_id"] == project_id
+    assert sessions_response.json()["items"][1]["status"] == "awaiting_selection"
+
+    versions_response = client.get(f"/api/v1/sessions/{second_session_id}/versions", headers=_auth("sub_history_owner"))
+    assert versions_response.status_code == 200
+    assert versions_response.json() == {
+        "items": [
+            {
+                "id": child_id,
+                "url": "s3://tevion/image-2.png",
+                "width": 1024,
+                "height": 1280,
+                "parent_image_id": image_id,
+            }
+        ]
+    }
+
+    assert (
+        client.get(f"/api/v1/projects/{project_id}/sessions", headers=_auth("sub_history_intruder")).status_code == 404
+    )
+    assert (
+        client.get(f"/api/v1/sessions/{second_session_id}/versions", headers=_auth("sub_history_intruder")).status_code
+        == 404
+    )
+
+
 def test_create_task_persists_session_and_run(db_override: None) -> None:
     response = client.post(
         "/api/v1/tasks",

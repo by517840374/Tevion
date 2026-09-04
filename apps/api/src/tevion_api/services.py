@@ -110,6 +110,37 @@ def get_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask
     return CreatedTask(session=session, run=run)
 
 
+def list_projects_for_user(db: OrmSession, user_id: str) -> list[Project]:
+    return list(db.scalars(select(Project).where(Project.user_id == user_id).order_by(Project.created_at, Project.id)))
+
+
+def list_sessions_for_project(db: OrmSession, user_id: str, project_id: str) -> list[Session] | None:
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+    if project is None:
+        return None
+    return list(
+        db.scalars(select(Session).where(Session.project_id == project_id).order_by(Session.created_at, Session.id))
+    )
+
+
+def list_image_versions_for_session(db: OrmSession, user_id: str, session_id: str) -> list[ImageVersion] | None:
+    owned_session = db.scalar(
+        select(Session)
+        .join(Project, Session.project_id == Project.id)
+        .where(Session.id == session_id, Project.user_id == user_id)
+    )
+    if owned_session is None:
+        return None
+    return list(
+        db.scalars(
+            select(ImageVersion)
+            .join(GenerationRun, ImageVersion.run_id == GenerationRun.id)
+            .where(GenerationRun.session_id == session_id)
+            .order_by(ImageVersion.created_at, ImageVersion.id)
+        )
+    )
+
+
 def get_image_version_for_user(
     db: OrmSession, user_id: str, task_id: str, image_version_id: str
 ) -> OwnedImageVersion | None:

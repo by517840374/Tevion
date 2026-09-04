@@ -19,9 +19,14 @@ from .schemas import (
     GenerateResponse,
     HealthResponse,
     ImageSummary,
+    ImageVersionListResponse,
     PreferenceListResponse,
     PreferenceView,
     ProductMetadata,
+    ProjectListResponse,
+    ProjectSummary,
+    SessionListResponse,
+    SessionSummary,
     TaskDetail,
     TaskStatus,
     TaskSummary,
@@ -76,6 +81,66 @@ def auth_me(current_user: User = Depends(get_current_user)) -> AuthUserResponse:
         provider_subject=current_user.provider_subject,
         email=current_user.email,
         display_name=current_user.display_name,
+    )
+
+
+@app.get("/api/v1/projects", response_model=ProjectListResponse)
+def list_projects(
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ProjectListResponse:
+    return ProjectListResponse(
+        items=[
+            ProjectSummary(id=project.id, name=project.name, description=project.description)
+            for project in services.list_projects_for_user(db, current_user.id)
+        ]
+    )
+
+
+@app.get("/api/v1/projects/{project_id}/sessions", response_model=SessionListResponse)
+def list_project_sessions(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> SessionListResponse:
+    sessions = services.list_sessions_for_project(db, current_user.id, project_id)
+    if sessions is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return SessionListResponse(
+        items=[
+            SessionSummary(
+                id=session.id,
+                project_id=session.project_id,
+                mode=session.mode,
+                status=session.status,
+                request=session.raw_request or "",
+                created_at=session.created_at,
+            )
+            for session in sessions
+        ]
+    )
+
+
+@app.get("/api/v1/sessions/{session_id}/versions", response_model=ImageVersionListResponse)
+def list_session_versions(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ImageVersionListResponse:
+    images = services.list_image_versions_for_session(db, current_user.id, session_id)
+    if images is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return ImageVersionListResponse(
+        items=[
+            ImageSummary(
+                id=image.id,
+                url=image.asset_uri,
+                width=image.width,
+                height=image.height,
+                parent_image_id=image.parent_image_id,
+            )
+            for image in images
+        ]
     )
 
 
