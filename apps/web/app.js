@@ -15,6 +15,8 @@ let chosenId = null;      // 当前高亮的候选图 id
 let lastFeedbackIntent = null;
 let elapsedTimer = null;
 let genStartedAt = 0;
+let historyProjects = [];
+let historySessions = [];
 
 function toast(msg, type = 'info', ms = 5000) {
   const el = $('toast');
@@ -73,6 +75,109 @@ function friendlyHttpError(status) {
 function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
 function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
 function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
+
+function listPayload(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.items)) return data.items;
+  if (data && Array.isArray(data.projects)) return data.projects;
+  if (data && Array.isArray(data.sessions)) return data.sessions;
+  if (data && Array.isArray(data.versions)) return data.versions;
+  return [];
+}
+
+function historyLabel(item, fallback) {
+  return item.name || item.title || item.raw_request || item.request || item.id || fallback;
+}
+
+function renderHistoryMessage(message, error = false) {
+  const status = $('historyStatus');
+  if (status) {
+    status.textContent = message;
+    status.className = 'muted intro' + (error ? ' history-error' : '');
+  }
+}
+
+function renderHistoryOptions(select, items, emptyText) {
+  select.innerHTML = '';
+  if (!items.length) {
+    select.appendChild(new Option(emptyText, ''));
+    select.disabled = true;
+    return;
+  }
+  items.forEach((item, index) => select.appendChild(new Option(historyLabel(item, '记录 ' + (index + 1)), item.id)));
+  select.disabled = false;
+}
+
+function renderHistoryVersions(versions) {
+  const target = $('historyVersions');
+  if (!target) return;
+  if (!versions.length) {
+    target.innerHTML = '<p class="muted">当前会话暂无历史版本。</p>';
+    return;
+  }
+  target.innerHTML = versions.map((version, index) => {
+    const parent = version.parent_image_id ? '<span class="history-parent">parent_image_id: ' + escapeHtml(version.parent_image_id) + '</span>' : '<span class="history-parent">无 parent_image_id（根版本）</span>';
+    const image = version.url || version.asset_uri;
+    const preview = image ? '<img loading="lazy" alt="历史版本 ' + (index + 1) + '" src="' + escapeHtml(image) + '">' : '';
+    return '<article class="history-version"><div class="history-thumb">' + preview + '</div><div><strong>' + escapeHtml(version.id || '版本 ' + (index + 1)) + '</strong><small>run_id: ' + escapeHtml(version.run_id || '未提供') + '</small>' + parent + '</div></article>';
+  }).join('');
+}
+
+async function loadHistoryVersions(sessionId) {
+  if (!sessionId) return renderHistoryVersions([]);
+  renderHistoryMessage('正在加载会话版本…');
+  try {
+    const data = await api('/sessions/' + encodeURIComponent(sessionId) + '/versions');
+    const versions = listPayload(data);
+    renderHistoryVersions(versions);
+    renderHistoryMessage('已加载 ' + versions.length + ' 个历史版本。');
+  } catch (err) {
+    renderHistoryVersions([]);
+    renderHistoryMessage('历史版本读取失败：' + err.message + ' 可重新选择会话重试。', true);
+  }
+}
+
+async function loadHistorySessions(projectId) {
+  const sessionSelect = $('historySession');
+  if (!sessionSelect || !projectId) return;
+  sessionSelect.disabled = true;
+  renderHistoryVersions([]);
+  renderHistoryMessage('正在加载项目会话…');
+  try {
+    const data = await api('/projects/' + encodeURIComponent(projectId) + '/sessions');
+    historySessions = listPayload(data);
+    renderHistoryOptions(sessionSelect, historySessions, '暂无会话');
+    renderHistoryMessage(historySessions.length ? '已加载项目会话，请选择查看版本。' : '当前项目暂无会话。');
+    if (historySessions.length) await loadHistoryVersions(historySessions[0].id);
+  } catch (err) {
+    historySessions = [];
+    renderHistoryOptions(sessionSelect, [], '暂无会话');
+    renderHistoryMessage('会话读取失败：' + err.message + ' 可重新选择项目重试。', true);
+  }
+}
+
+async function loadProjectHistory() {
+  const projectSelect = $('historyProject');
+  if (!projectSelect || !getToken()) return;
+  projectSelect.disabled = true;
+  renderHistoryMessage('正在加载项目历史…');
+  try {
+    const data = await api('/projects');
+    historyProjects = listPayload(data);
+    renderHistoryOptions(projectSelect, historyProjects, '暂无项目');
+    if (!historyProjects.length) {
+      renderHistoryMessage('当前账号暂无项目。创建项目后可在此查看历史。');
+      renderHistoryVersions([]);
+      return;
+    }
+    await loadHistorySessions(historyProjects[0].id);
+  } catch (err) {
+    historyProjects = [];
+    renderHistoryOptions(projectSelect, [], '暂无项目');
+    renderHistoryVersions([]);
+    renderHistoryMessage('项目历史读取失败：' + err.message + ' 后端接口就绪后可重试。', true);
+  }
+}
 
 function randomString(bytes = 32) {
   const values = new Uint8Array(bytes);
@@ -185,6 +290,7 @@ async function handleLogin() {
     if (!data || !data.access_token) throw new Error('登录接口未返回 access_token。');
     setToken(data.access_token);
     toast('演示登录成功，可以开始生成了。', 'success');
+    await loadProjectHistory();
   } catch (err) {
     toast('登录失败：' + err.message, 'error', 8000);
   } finally {
@@ -205,6 +311,10 @@ function handleLogout() {
   hideEcho();
   setBusy(false);
   refreshLoginUI();
+  renderHistoryMessage('登录后加载项目、会话与版本。');
+  renderHistoryOptions($('historyProject'), [], '暂无项目');
+  renderHistoryOptions($('historySession'), [], '暂无会话');
+  renderHistoryVersions([]);
   toast('已退出演示登录。', 'info');
 }
 
@@ -599,6 +709,8 @@ document.querySelectorAll('.mode').forEach(mode =>
 $('generate').addEventListener('click', () => handleGenerate());
 $('loginBtn').addEventListener('click', handleLogin);
 $('logoutBtn').addEventListener('click', handleLogout);
+$('historyProject')?.addEventListener('change', event => loadHistorySessions(event.target.value));
+$('historySession')?.addEventListener('change', event => loadHistoryVersions(event.target.value));
 $('results').addEventListener('click', e => {
   const sel = e.target.closest('[data-select]');
   if (sel) {
@@ -613,5 +725,8 @@ $('results').addEventListener('click', e => {
 $('memoryBtn').addEventListener('click', () => toast('视觉记忆管理将在后续版本开放。', 'info'));
 $('profileBtn').addEventListener('click', () => toast('审美画像功能将在后续版本开放。', 'info'));
 
-handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(refreshLoginUI);
+handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(() => {
+  refreshLoginUI();
+  if (getToken()) loadProjectHistory();
+});
 refreshLoginUI();
