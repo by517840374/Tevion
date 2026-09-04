@@ -20,14 +20,31 @@
   <script>
     const checks = [];
     const record = (name, ok) => checks.push({name, ok});
-    document.getElementById('run-checks').addEventListener('click', () => {
+    const renderChecks = () => {
+      document.getElementById('checks').innerHTML = checks.map(c => `<p>${c.ok ? '✓' : '✗'} ${c.name}</p>`).join('');
+    };
+    document.getElementById('run-checks').addEventListener('click', async () => {
+      checks.length = 0;
       record('生成按钮存在', Boolean(document.getElementById('generate')));
       record('探索/精修模式存在', document.querySelectorAll('.mode').length === 2);
       record('视觉标签可交互', document.querySelectorAll('.chip').length >= 5);
       record('候选区域存在', Boolean(document.getElementById('results')));
       record('选择与拒绝控件存在', document.querySelectorAll('.select-candidate').length >= 1 && document.querySelectorAll('.reject-candidate').length >= 1);
       record('Visual Memory 区域存在', Boolean(document.querySelector('.right-column')));
-      document.getElementById('checks').innerHTML = checks.map(c => `<p>${c.ok ? '✓' : '✗'} ${c.name}</p>`).join('');
+      try {
+        const source = await fetch('app.js').then(response => response.text());
+        record('token helpers 统一使用 sessionStorage',
+          (source.match(/function getToken\(/g) || []).length === 1 &&
+          (source.match(/function setToken\(/g) || []).length === 1 &&
+          (source.match(/function clearToken\(/g) || []).length === 1 &&
+          source.includes('function getToken() { return sessionStorage.getItem(TOKEN_KEY) || \'\'; }') &&
+          !source.includes('localStorage.getItem(TOKEN_KEY)'));
+        record('401 清理调用统一 clearToken', /if \(res\.status === 401\) clearToken\(\);/.test(source));
+        record('OIDC callback 使用相同 setToken helper', /setToken\(data\.access_token\);/.test(source));
+      } catch {
+        record('token storage focused checks 可读取 app.js', false);
+      }
+      renderChecks();
     });
   </script>
 </body>
