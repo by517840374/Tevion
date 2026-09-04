@@ -101,44 +101,66 @@ async function startOidcLogin() {
   return true;
 }
 
+function sanitizeOidcCallbackUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('code');
+  url.searchParams.delete('state');
+  url.searchParams.delete('error');
+  url.searchParams.delete('error_description');
+  url.searchParams.delete('error_uri');
+  window.history.replaceState({}, document.title, url.pathname + (url.search ? '?' + url.searchParams : '') + url.hash);
+}
+
 async function handleOidcCallback() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
-  if (!code && !params.get('error')) return false;
-  if (params.get('error')) throw new Error('OIDC 登录被取消或拒绝。');
+  const callbackError = params.get('error');
+  if (!code && !callbackError) return false;
 
-  let transaction;
+  // Remove credentials and authorization response parameters before returning or throwing.
+  // The transaction remains available until a token exchange has completed successfully.
   try {
-    transaction = JSON.parse(sessionStorage.getItem(OIDC_TRANSACTION_KEY) || 'null');
-  } catch {
-    transaction = null;
+    if (callbackError) throw new Error('OIDC 登录被取消或拒绝，请重新点击登录。');
+
+    let transaction;
+    try {
+      transaction = JSON.parse(sessionStorage.getItem(OIDC_TRANSACTION_KEY) || 'null');
+    } catch {
+      transaction = null;
+    }
+    if (!transaction || typeof transaction.state !== 'string' || typeof transaction.codeVerifier !== 'string' ||
+        params.get('state') !== transaction.state) {
+      throw new Error('OIDC state 校验失败，请重新点击登录。');
+    }
+    if (!OIDC_CONFIG || !OIDC_CONFIG.token_endpoint || !OIDC_CONFIG.client_id) {
+      throw new Error('OIDC token endpoint 未配置，请重新点击登录。');
+    }
+    const body = new URLSearchParams({ grant_type: 'authorization_code', code,
+      redirect_uri: OIDC_CONFIG.redirect_uri || window.location.href.split('?')[0],
+      client_id: OIDC_CONFIG.client_id, code_verifier: transaction.codeVerifier });
+    let response;
+    try {
+      response = await fetch(OIDC_CONFIG.token_endpoint, { method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    } catch {
+      throw new Error('OIDC token endpoint 无法连接，请重新点击登录。');
+    }
+    if (!response.ok) throw new Error('OIDC token exchange 失败，请重新点击登录。');
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error('OIDC token exchange 返回无效响应，请重新点击登录。');
+    }
+    if (!data.access_token || typeof data.access_token !== 'string') {
+      throw new Error('OIDC token exchange 未返回 access_token，请重新点击登录。');
+    }
+    setToken(data.access_token);
+    sessionStorage.removeItem(OIDC_TRANSACTION_KEY);
+    return true;
+  } finally {
+    sanitizeOidcCallbackUrl();
   }
-  sessionStorage.removeItem(OIDC_TRANSACTION_KEY);
-  if (!transaction || typeof transaction.state !== 'string' || typeof transaction.codeVerifier !== 'string' ||
-      params.get('state') !== transaction.state) {
-    throw new Error('OIDC state 校验失败。');
-  }
-  if (!OIDC_CONFIG || !OIDC_CONFIG.token_endpoint || !OIDC_CONFIG.client_id) {
-    throw new Error('OIDC token endpoint 未配置。');
-  }
-  const body = new URLSearchParams({ grant_type: 'authorization_code', code,
-    redirect_uri: OIDC_CONFIG.redirect_uri || window.location.href.split('?')[0],
-    client_id: OIDC_CONFIG.client_id, code_verifier: transaction.codeVerifier });
-  let response;
-  try {
-    response = await fetch(OIDC_CONFIG.token_endpoint, { method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-  } catch {
-    throw new Error('OIDC token endpoint 无法连接。');
-  }
-  if (!response.ok) throw new Error('OIDC token exchange 失败。');
-  const data = await response.json();
-  if (!data.access_token || typeof data.access_token !== 'string') {
-    throw new Error('OIDC token exchange 未返回 access_token。');
-  }
-  setToken(data.access_token);
-  window.history.replaceState({}, document.title, window.location.pathname);
-  return true;
 }
 function refreshLoginUI() {
   const has = !!getToken();

@@ -41,6 +41,12 @@
           !source.includes('localStorage.getItem(TOKEN_KEY)'));
         record('401 清理调用统一 clearToken', /if \(res\.status === 401\) clearToken\(\);/.test(source));
         record('OIDC callback 使用相同 setToken helper', /setToken\(data\.access_token\);/.test(source));
+        const exchange = source.indexOf('fetch(OIDC_CONFIG.token_endpoint');
+        const consume = source.indexOf('sessionStorage.removeItem(OIDC_TRANSACTION_KEY)');
+        record('token exchange 前保留 transaction', exchange >= 0 && consume > exchange);
+        record('成功消费 transaction', source.indexOf('setToken(data.access_token)') < consume);
+        record('失败/取消清理 callback URL', source.includes('} finally {') && source.includes('sanitizeOidcCallbackUrl();'));
+        record('清理 code/state/error 且不泄露敏感值', ['code', 'state', 'error'].every(key => source.includes("url.searchParams.delete('" + key + "')")) && !source.includes('console.log(code)'));
       } catch {
         record('token storage focused checks 可读取 app.js', false);
       }
