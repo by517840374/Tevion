@@ -2,6 +2,7 @@
  * 后端地址如有变化，只需修改 API_BASE。
  */
 const API_BASE = window.TEVION_API_BASE || 'http://127.0.0.1:8010/api/v1';
+
 const OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
 const TOKEN_KEY = 'tevion_token';
 const OIDC_TRANSACTION_KEY = 'tevion_oidc_transaction';
@@ -139,6 +140,9 @@ async function handleOidcCallback() {
   window.history.replaceState({}, document.title, window.location.pathname);
   return true;
 }
+function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+function clearToken() { localStorage.removeItem(TOKEN_KEY); }
 
 function refreshLoginUI() {
   const has = !!getToken();
@@ -592,3 +596,4 @@ $('memoryBtn').addEventListener('click', () => toast('视觉记忆管理将在�
 $('profileBtn').addEventListener('click', () => toast('审美画像功能将在后续版本开放。', 'info'));
 
 handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(refreshLoginUI);
+refreshLoginUI();
