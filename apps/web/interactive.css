@@ -7,6 +7,21 @@
 #loginHint{margin-top:10px;color:#b39b64}
 #loginHint.on{color:#687269}
 
+/* project/session/version history */
+.history-panel{margin-top:28px;padding-top:24px;border-top:1px solid var(--line)}
+.history-panel h2{font-size:20px;margin:0 0 8px}
+.history-panel select{width:100%;margin:5px 0 12px}
+.history-session-label{margin-top:4px}
+.history-list{display:grid;gap:10px;margin-top:8px;max-height:310px;overflow:auto}
+.history-version{display:grid;grid-template-columns:54px 1fr;gap:9px;padding:9px;border:1px solid var(--line);background:rgba(28,33,30,.7);border-radius:5px;min-width:0}
+.history-thumb{width:54px;height:62px;border-radius:3px;background:#252b26;overflow:hidden;display:grid;place-items:center}
+.history-thumb img{width:100%;height:100%;object-fit:cover}
+.history-version strong,.history-version small,.history-parent{display:block;overflow-wrap:anywhere}
+.history-version strong{font-size:11px;color:var(--ink)}
+.history-version small,.history-parent{font-size:10px;color:var(--muted);margin-top:4px}
+.history-parent{color:var(--accent2)}
+.history-error{color:#e8a08e}
+
 /* toast */
 .toast{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:99;max-width:min(640px,92vw);padding:11px 18px;border-radius:8px;font-size:13px;line-height:1.5;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:toast-in .22s ease-out}
 .toast-error{background:#331f1b;border:1px solid #8a4a3f;color:#ffd9d1}

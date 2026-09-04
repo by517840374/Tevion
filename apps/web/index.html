@@ -72,6 +72,16 @@
       <div class="memory-block"><div class="memory-title"><span>你经常选择</span><span class="confidence">高置信</span></div><div class="memory-tags"><span>柔和侧光</span><span>半身构图</span><span>低饱和</span><span>简洁背景</span><span>自然皮肤</span></div></div>
       <div class="memory-block dim"><div class="memory-title"><span>你较少选择</span><span class="confidence low">待确认</span></div><div class="memory-tags"><span>强闪光灯</span><span>复杂街景</span><span>过度成熟</span></div></div>
       <div class="memory-footer"><span class="memory-pulse"></span><p>每次明确反馈都会更新项目记忆。<br><button class="text-button" id="memoryBtn">管理记忆 →</button></p></div>
+      <div class="history-panel" id="historyPanel" aria-live="polite">
+        <div class="eyebrow">PROJECT HISTORY</div>
+        <h2>项目历史</h2>
+        <p class="muted intro" id="historyStatus">登录后加载项目、会话与版本。</p>
+        <label class="field-label" for="historyProject">当前项目</label>
+        <select id="historyProject" disabled><option>暂无项目</option></select>
+        <label class="field-label history-session-label" for="historySession">当前会话</label>
+        <select id="historySession" disabled><option>暂无会话</option></select>
+        <div id="historyVersions" class="history-list"><p class="muted">选择项目和会话后查看历史版本。</p></div>
+      </div>
     </aside>
   </main>
 
