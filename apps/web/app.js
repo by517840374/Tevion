@@ -140,10 +140,6 @@ async function handleOidcCallback() {
   window.history.replaceState({}, document.title, window.location.pathname);
   return true;
 }
-function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
-function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-function clearToken() { localStorage.removeItem(TOKEN_KEY); }
-
 function refreshLoginUI() {
   const has = !!getToken();
   $('loginBtn').hidden = has;
