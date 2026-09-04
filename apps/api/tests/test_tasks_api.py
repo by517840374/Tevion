@@ -391,3 +391,83 @@ def test_refine_task_requires_existing_parent(db_override: None) -> None:
         headers=_auth("sub_refine_missing"),
     )
     assert response.status_code == 422
+
+
+def test_create_task_binds_requested_project(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        user = m.User(auth_provider="oidc", provider_subject="sub_selected_project")
+        session.add(user)
+        session.flush()
+        first = m.Project(user_id=user.id, name="第一个项目")
+        selected = m.Project(user_id=user.id, name="指定项目")
+        session.add_all([first, selected])
+        session.commit()
+        selected_id = selected.id
+    engine.dispose()
+
+    response = client.post(
+        "/api/v1/tasks",
+        json={"request": "指定项目任务", "project_id": selected_id, "mode": "explore", "output_count": 2},
+        headers=_auth("sub_selected_project"),
+    )
+    assert response.status_code == 202
+
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        stored = session.get(m.Session, response.json()["task_id"])
+        assert stored is not None
+        assert stored.project_id == selected_id
+    engine.dispose()
+
+
+def test_create_task_rejects_project_owned_by_other_user_without_leaking_it(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        _, foreign_project_id, _, _ = _create(session, subject="sub_foreign_project")
+    engine.dispose()
+
+    response = client.post(
+        "/api/v1/tasks",
+        json={"request": "越权项目", "project_id": foreign_project_id, "mode": "explore", "output_count": 2},
+        headers=_auth("sub_project_attacker"),
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "project not found"
+
+
+def test_refine_rejects_parent_image_from_another_project(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        user = m.User(auth_provider="oidc", provider_subject="sub_cross_project_refine")
+        session.add(user)
+        session.flush()
+        target = m.Project(user_id=user.id, name="目标项目")
+        source = m.Project(user_id=user.id, name="来源项目")
+        session.add_all([target, source])
+        session.flush()
+        source_session = m.Session(project_id=source.id, mode="explore", raw_request="来源", status="created")
+        session.add(source_session)
+        session.flush()
+        source_run = m.GenerationRun(session_id=source_session.id, strategy_version="default", status="completed")
+        session.add(source_run)
+        session.flush()
+        source_image = m.ImageVersion(run_id=source_run.id, asset_uri="s3://source.png")
+        session.add(source_image)
+        session.commit()
+        target_id, source_image_id = target.id, source_image.id
+    engine.dispose()
+
+    response = client.post(
+        "/api/v1/tasks",
+        json={
+            "request": "跨项目精修",
+            "project_id": target_id,
+            "mode": "refine",
+            "parent_version_id": source_image_id,
+            "output_count": 2,
+        },
+        headers=_auth("sub_cross_project_refine"),
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "parent image not found"

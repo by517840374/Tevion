@@ -35,12 +35,23 @@ class OwnedImageVersion:
     image: ImageVersion
 
 
-def _ensure_default_project(db: OrmSession, user: User) -> Project:
-    project = db.scalar(select(Project).where(Project.user_id == user.id).order_by(Project.created_at).limit(1))
+class ProjectNotFoundError(ValueError):
+    """Raised when a requested project is not owned by the current user."""
+
+
+def _resolve_project(db: OrmSession, user: User, project_id: str | None) -> Project:
+    if project_id is None:
+        project = db.scalar(select(Project).where(Project.user_id == user.id).order_by(Project.created_at).limit(1))
+        if project is None:
+            project = Project(user_id=user.id, name="默认项目")
+            db.add(project)
+            db.flush()
+        return project
+
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user.id))
     if project is None:
-        project = Project(user_id=user.id, name="默认项目")
-        db.add(project)
-        db.flush()
+        # Do not reveal whether an id belongs to another user or exists at all.
+        raise ProjectNotFoundError("project not found")
     return project
 
 
@@ -53,8 +64,9 @@ def create_task(
     parameters: dict | None = None,
     strategy_version: str = "default",
     parent_version_id: str | None = None,
+    project_id: str | None = None,
 ) -> CreatedTask:
-    project = _ensure_default_project(db, user)
+    project = _resolve_project(db, user, project_id)
     parent_run_id = None
     if mode == "refine":
         if not parent_version_id:
