@@ -1,11 +1,3 @@
-"""Task service: persistence boundary between the API and ORM models.
-
-A "task" maps to one Session plus its initial GenerationRun. The session owns
-the product conversation (mode, raw request); the run owns one generation
-attempt (strategy version, provider, cost). Both rows are created together so
-the task is reconstructable from day one.
-"""
-
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -204,12 +196,15 @@ def project_preferences_for_task(db: OrmSession, *, user_id: str, task_id: str, 
     for event in events:
         evidence.extend(_feedback_to_evidence(event, project_id=task.session.project_id))
 
+    scope_id = (
+        task.session.project_id if scope == "project" else task.session.id if scope == "session" else None
+    )
     for pref_event in db.scalars(
         select(PreferenceEvent)
         .where(
             PreferenceEvent.user_id == user_id,
             PreferenceEvent.scope == scope,
-            PreferenceEvent.scope_id == (task.session.project_id if scope == "project" else task.session.id if scope == "session" else None),
+            PreferenceEvent.scope_id == scope_id,
         )
         .order_by(PreferenceEvent.created_at, PreferenceEvent.id)
     ):
