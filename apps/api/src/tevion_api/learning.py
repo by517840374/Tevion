@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -56,9 +56,7 @@ class PreferenceProjector:
             if event.deleted:
                 buckets.pop(bucket_key, None)
                 continue
-            bucket = buckets.setdefault(
-                bucket_key, {"weight": 0.0, "count": 0, "best_source": "", "best_weight": -1.0}
-            )
+            bucket = buckets.setdefault(bucket_key, {"weight": 0.0, "count": 0, "best_source": "", "best_weight": -1.0})
             weight = _SOURCE_WEIGHTS.get(event.source, 0.5)
             bucket["weight"] += weight
             bucket["count"] += 1

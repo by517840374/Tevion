@@ -47,9 +47,7 @@ class User(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (
-        UniqueConstraint("auth_provider", "provider_subject", name="uq_users_provider_subject"),
-    )
+    __table_args__ = (UniqueConstraint("auth_provider", "provider_subject", name="uq_users_provider_subject"),)
 
     projects: Mapped[list["Project"]] = relationship(back_populates="user")
 
@@ -147,9 +145,7 @@ class FeedbackEvent(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("feedback"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
-    image_version_id: Mapped[str] = mapped_column(
-        ForeignKey("image_versions.id", ondelete="CASCADE"), nullable=False
-    )
+    image_version_id: Mapped[str] = mapped_column(ForeignKey("image_versions.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(String(24), nullable=False)
     payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = _ts()

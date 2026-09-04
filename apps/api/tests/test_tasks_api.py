@@ -70,7 +70,9 @@ def db_override() -> Generator[None, None, None]:
     engine.dispose()
 
 
-def _create(db: OrmSession, *, subject: str, request_text: str = "清爽成年男性", mode: str = "explore") -> tuple[str, str, str, str]:
+def _create(
+    db: OrmSession, *, subject: str, request_text: str = "清爽成年男性", mode: str = "explore"
+) -> tuple[str, str, str, str]:
     user = m.User(auth_provider="oidc", provider_subject=subject)
     db.add(user)
     db.flush()
@@ -92,7 +94,12 @@ def _create(db: OrmSession, *, subject: str, request_text: str = "清爽成年�
 def test_create_task_persists_session_and_run(db_override: None) -> None:
     response = client.post(
         "/api/v1/tasks",
-        json={"request": "我想要清爽、少年感但成年的男性肖像", "mode": "explore", "output_count": 4, "aspect_ratio": "4:5"},
+        json={
+            "request": "我想要清爽、少年感但成年的男性肖像",
+            "mode": "explore",
+            "output_count": 4,
+            "aspect_ratio": "4:5",
+        },
         headers=_auth("sub_creator"),
     )
 
@@ -109,9 +116,7 @@ def test_create_task_persists_session_and_run(db_override: None) -> None:
         assert stored_session is not None
         assert stored_session.mode == "explore"
         assert stored_session.status == "created"
-        run = session.scalar(
-            select(m.GenerationRun).where(m.GenerationRun.session_id == body["task_id"])
-        )
+        run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == body["task_id"]))
         assert run is not None
         assert run.strategy_version == "default"
         assert run.parameters_json == {"output_count": 4, "aspect_ratio": "4:5", "quality": "low"}
@@ -198,7 +203,12 @@ def test_owner_can_write_feedback_and_read_project_preferences(db_override: None
         assert events[0].image_version_id == image_id
         assert events[0].payload_json["direction"] == "保留光线，继续这个方向"
         reconstructed = [
-            (event.event_type, event.image_version_id, event.payload_json.get("direction"), event.payload_json.get("selected"))
+            (
+                event.event_type,
+                event.image_version_id,
+                event.payload_json.get("direction"),
+                event.payload_json.get("selected"),
+            )
             for event in events
         ]
         assert reconstructed == [("selected", image_id, "保留光线，继续这个方向", True)]
@@ -247,11 +257,16 @@ def test_feedback_reject_requires_reason(db_override: None) -> None:
 def test_task_requires_auth(db_override: None) -> None:
     assert client.post("/api/v1/tasks", json={"request": "x", "mode": "explore"}).status_code == 401
     assert client.get("/api/v1/tasks/session_unknown").status_code == 401
-    assert client.post(
-        "/api/v1/tasks/session_unknown/feedback",
-        json={"version_id": "image_unknown", "selected": True},
-    ).status_code == 401
-    assert client.get("/api/v1/preferences", params={"scope": "project", "task_id": "session_unknown"}).status_code == 401
+    assert (
+        client.post(
+            "/api/v1/tasks/session_unknown/feedback",
+            json={"version_id": "image_unknown", "selected": True},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.get("/api/v1/preferences", params={"scope": "project", "task_id": "session_unknown"}).status_code == 401
+    )
 
 
 def test_refine_task_preserves_parent_lineage(db_override: None) -> None:

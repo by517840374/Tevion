@@ -35,7 +35,10 @@ def test_submit_poll_and_normalize_completed_task() -> None:
             seen_auth.append(request.headers.get("authorization", ""))
             return httpx.Response(
                 200,
-                json={"created": 1714012800, "data": [{"task_id": "task_abc", "status": "pending"}]},
+                json={
+                    "created": 1714012800,
+                    "data": [{"task_id": "task_abc", "status": "pending"}],
+                },
             )
         assert request.url.path.endswith("/tasks/task_abc")
         return httpx.Response(
@@ -58,7 +61,11 @@ def test_submit_poll_and_normalize_completed_task() -> None:
     assert result.provider_request_id == "task_abc"
     assert result.asset_urls == ["https://cdn.example.test/result-1.png"]
     assert result.cost == 0.0081
-    assert result.metadata == {"provider": "maizitech", "params": {"size": "1:1", "quality": "low"}, "size": "1:1"}
+    assert result.metadata == {
+        "provider": "maizitech",
+        "params": {"size": "1:1", "quality": "low"},
+        "size": "1:1",
+    }
     # payload carries model/prompt/n but never the api key
     assert seen_bodies[0]["model"] == "gpt-image-2"
     assert seen_bodies[0]["prompt"] == "清爽成年男性肖像"
@@ -72,9 +79,7 @@ def test_failed_task_raises_without_exposing_key() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/images/generations"):
             return httpx.Response(200, json={"data": [{"task_id": "task_bad", "status": "pending"}]})
-        return httpx.Response(
-            200, json={"id": "task_bad", "status": "failed", "error_msg": f"boom {API_KEY}"}
-        )
+        return httpx.Response(200, json={"id": "task_bad", "status": "failed", "error_msg": f"boom {API_KEY}"})
 
     provider = _provider(handler)
     with pytest.raises(ProviderResponseError) as exc:
@@ -84,9 +89,7 @@ def test_failed_task_raises_without_exposing_key() -> None:
 
 def test_sync_style_response_with_immediate_url() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json={"created": 1, "data": [{"url": "https://cdn.example.test/direct.png"}]}
-        )
+        return httpx.Response(200, json={"created": 1, "data": [{"url": "https://cdn.example.test/direct.png"}]})
 
     provider = _provider(handler)
     result = provider.generate(GenerationRequest(prompt="x", output_count=1))

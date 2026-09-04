@@ -54,22 +54,16 @@ def db() -> Generator[OrmSession, None, None]:
 
 
 def _task(db: OrmSession) -> services.CreatedTask:
-    user = m.User(
-        auth_provider="oidc", provider_subject=f"sub_failure_test_{uuid.uuid4().hex[:8]}"
-    )
+    user = m.User(auth_provider="oidc", provider_subject=f"sub_failure_test_{uuid.uuid4().hex[:8]}")
     db.add(user)
     db.flush()
-    return services.create_task(
-        db, user, request="清爽成年男性", mode="explore", parameters={"output_count": 1}
-    )
+    return services.create_task(db, user, request="清爽成年男性", mode="explore", parameters={"output_count": 1})
 
 
 def test_provider_failure_is_recorded_on_run(db: OrmSession) -> None:
     task = _task(db)
     with pytest.raises(ProviderResponseError):
-        services.execute_generation(
-            db, task, FailingProvider(ProviderResponseError("provider task failed: boom"))
-        )
+        services.execute_generation(db, task, FailingProvider(ProviderResponseError("provider task failed: boom")))
 
     db.expire_all()
     run = db.get(m.GenerationRun, task.run.id)

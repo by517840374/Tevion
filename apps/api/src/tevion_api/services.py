@@ -5,7 +5,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
-from .models import FeedbackEvent, GenerationRun, ImageVersion, PreferenceEvent, Project, Session, User
+from .models import (
+    FeedbackEvent,
+    GenerationRun,
+    ImageVersion,
+    PreferenceEvent,
+    Project,
+    Session,
+    User,
+)
 from .provider import (
     GenerationRequest,
     GenerationResult,
@@ -28,9 +36,7 @@ class OwnedImageVersion:
 
 
 def _ensure_default_project(db: OrmSession, user: User) -> Project:
-    project = db.scalar(
-        select(Project).where(Project.user_id == user.id).order_by(Project.created_at).limit(1)
-    )
+    project = db.scalar(select(Project).where(Project.user_id == user.id).order_by(Project.created_at).limit(1))
     if project is None:
         project = Project(user_id=user.id, name="默认项目")
         db.add(project)
@@ -104,7 +110,9 @@ def get_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask
     return CreatedTask(session=session, run=run)
 
 
-def get_image_version_for_user(db: OrmSession, user_id: str, task_id: str, image_version_id: str) -> OwnedImageVersion | None:
+def get_image_version_for_user(
+    db: OrmSession, user_id: str, task_id: str, image_version_id: str
+) -> OwnedImageVersion | None:
     row = db.execute(
         select(Session, GenerationRun, ImageVersion)
         .join(Project, Session.project_id == Project.id)
@@ -207,7 +215,9 @@ def _feedback_to_evidence(feedback: FeedbackEvent, *, project_id: str) -> list[F
     return evidences
 
 
-def project_preferences_for_task(db: OrmSession, *, user_id: str, task_id: str, scope: str) -> list[ProjectedPreference]:
+def project_preferences_for_task(
+    db: OrmSession, *, user_id: str, task_id: str, scope: str
+) -> list[ProjectedPreference]:
     task = get_task_for_user(db, user_id, task_id)
     if task is None:
         raise ValueError("task not found")
@@ -217,9 +227,7 @@ def project_preferences_for_task(db: OrmSession, *, user_id: str, task_id: str, 
     for event in events:
         evidence.extend(_feedback_to_evidence(event, project_id=task.session.project_id))
 
-    scope_id = (
-        task.session.project_id if scope == "project" else task.session.id if scope == "session" else None
-    )
+    scope_id = task.session.project_id if scope == "project" else task.session.id if scope == "session" else None
     for pref_event in db.scalars(
         select(PreferenceEvent)
         .where(

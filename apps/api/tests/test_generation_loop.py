@@ -105,7 +105,12 @@ def db_override() -> Generator[None, None, None]:
 def _create_task(sub: str = "sub_gen") -> str:
     response = client.post(
         "/api/v1/tasks",
-        json={"request": "清爽成年男性，柔和侧光", "mode": "explore", "output_count": 2, "aspect_ratio": "1:1"},
+        json={
+            "request": "清爽成年男性，柔和侧光",
+            "mode": "explore",
+            "output_count": 2,
+            "aspect_ratio": "1:1",
+        },
         headers=_auth(sub),
     )
     assert response.status_code == 202
@@ -133,9 +138,7 @@ def test_generate_persists_images_and_updates_status(db_override: None) -> None:
         assert run.model_name == "gpt-image-2"
         assert run.estimated_cost == 0.01
         assert run.latency_ms == 12
-        count = session.scalar(
-            select(func.count(m.ImageVersion.id)).where(m.ImageVersion.run_id == run.id)
-        )
+        count = session.scalar(select(func.count(m.ImageVersion.id)).where(m.ImageVersion.run_id == run.id))
         assert count == 2
         stored_session = session.get(m.Session, task_id)
         assert stored_session is not None
@@ -158,7 +161,12 @@ def test_refine_generation_preserves_parent_image_lineage(db_override: None) -> 
 
     response = client.post(
         "/api/v1/tasks",
-        json={"request": "保留主体，精修背景", "mode": "refine", "parent_version_id": parent_image_id, "output_count": 2},
+        json={
+            "request": "保留主体，精修背景",
+            "mode": "refine",
+            "parent_version_id": parent_image_id,
+            "output_count": 2,
+        },
         headers=_auth("sub_refine_generate"),
     )
     assert response.status_code == 202
@@ -208,15 +216,11 @@ def test_dev_token_enabled_with_dev_secret(db_override: None) -> None:
     token = response.json()["access_token"]
     assert token.count(".") == 2  # looks like a JWT
     # and the token actually works
-    task = client.post(
-        "/api/v1/tasks", json={"request": "x", "mode": "explore"}, headers=_auth("demo_user")
-    )
+    task = client.post("/api/v1/tasks", json={"request": "x", "mode": "explore"}, headers=_auth("demo_user"))
     assert task.status_code == 202
 
 
-def test_dev_token_disabled_without_dev_secret(
-    db_override: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dev_token_disabled_without_dev_secret(db_override: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TEVION_AUTH_DEV_SECRET")
     response = client.post("/api/v1/auth/dev-token")
     assert response.status_code == 503
