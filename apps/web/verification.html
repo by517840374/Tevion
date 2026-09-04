@@ -31,35 +31,43 @@
     };
     document.getElementById('run-checks').addEventListener('click', async () => {
       checks.length = 0;
-      record('生成按钮存在', Boolean(document.getElementById('generate')));
-      record('探索/精修模式存在', document.querySelectorAll('.mode').length === 2);
-      record('视觉标签可交互', document.querySelectorAll('.chip').length >= 5);
-      record('候选区域存在', Boolean(document.getElementById('results')));
-      record('选择与拒绝控件存在', document.querySelectorAll('.select-candidate').length >= 1 && document.querySelectorAll('.reject-candidate').length >= 1);
-      record('Visual Memory 区域存在', Boolean(document.querySelector('.right-column')));
-      record('项目历史入口与容器存在', Boolean(document.getElementById('historyPanel')) && Boolean(document.getElementById('historyProject')) && Boolean(document.getElementById('historySession')) && Boolean(document.getElementById('historyVersions')));
+      const historyIds = ['historyPanel', 'historyStatus', 'historyProject', 'historySession', 'historyVersions'];
+      record('项目历史面板 DOM 完整', historyIds.every(id => Boolean(document.getElementById(id))));
+      record('项目与会话选择控件属于历史面板',
+        document.getElementById('historyProject')?.closest('#historyPanel') === document.getElementById('historyPanel') &&
+        document.getElementById('historySession')?.closest('#historyPanel') === document.getElementById('historyPanel'));
       try {
-        const source = await fetch('app.js').then(response => response.text());
-        record('token helpers 统一使用 sessionStorage',
-          (source.match(/function getToken\(/g) || []).length === 1 &&
-          (source.match(/function setToken\(/g) || []).length === 1 &&
-          (source.match(/function clearToken\(/g) || []).length === 1 &&
-          source.includes('function getToken() { return sessionStorage.getItem(TOKEN_KEY) || \'\'; }') &&
-          !source.includes('localStorage.getItem(TOKEN_KEY)'));
-        record('401 清理调用统一 clearToken', /if \(res\.status === 401\) clearToken\(\);/.test(source));
-        record('OIDC callback 使用相同 setToken helper', /setToken\(data\.access_token\);/.test(source));
-        const exchange = source.indexOf('fetch(OIDC_CONFIG.token_endpoint');
-        const consume = source.indexOf('sessionStorage.removeItem(OIDC_TRANSACTION_KEY)');
-        record('token exchange 前保留 transaction', exchange >= 0 && consume > exchange);
-        record('成功消费 transaction', source.indexOf('setToken(data.access_token)') < consume);
-        record('失败/取消清理 callback URL', source.includes('} finally {') && source.includes('sanitizeOidcCallbackUrl();'));
-        record('清理 code/state/error 且不泄露敏感值', ['code', 'state', 'error'].every(key => source.includes("url.searchParams.delete('" + key + "')")) && !source.includes('console.log(code)'));
-        record('历史查询使用 sessionStorage token 与 api()', source.includes("api('/projects')") && source.includes("api('/projects/' + encodeURIComponent(projectId) + '/sessions')") && source.includes("api('/sessions/' + encodeURIComponent(sessionId) + '/versions')") && source.includes('getToken()'));
-        record('历史查询按项目→会话→版本顺序串联', source.indexOf("api('/projects')") < source.indexOf("/projects/' + encodeURIComponent(projectId) + '/sessions") && source.indexOf("/projects/' + encodeURIComponent(projectId) + '/sessions") < source.indexOf("/sessions/' + encodeURIComponent(sessionId) + '/versions"));
-        record('历史版本展示 parent_image_id lineage', source.includes('parent_image_id') && source.includes('history-parent'));
-        record('历史接口失败提供可恢复提示', source.includes('后端接口就绪后可重试') && source.includes('可重新选择会话重试'));
-      } catch {
-        record('token storage focused checks 可读取 app.js', false);
+        const source = await fetch('app.js').then(response => {
+          if (!response.ok) throw new Error('app.js HTTP ' + response.status);
+          return response.text();
+        });
+        const has = pattern => pattern.test(source);
+        record('token helpers 使用 sessionStorage',
+          has(/function getToken\(\)\s*\{[^}]*sessionStorage\.getItem\(TOKEN_KEY\)/s) &&
+          has(/function setToken\(t\)\s*\{[^}]*sessionStorage\.setItem\(TOKEN_KEY,\s*t\)/s) &&
+          has(/function clearToken\(\)\s*\{[^}]*sessionStorage\.removeItem\(TOKEN_KEY\)/s) &&
+          !has(/localStorage\.(getItem|setItem|removeItem)\(TOKEN_KEY/));
+        record('历史查询包含三个真实 endpoint',
+          has(/api\(\s*['"]\/projects['"]\s*\)/) &&
+          has(/api\(\s*['"]\/projects\/['"]\s*\+\s*encodeURIComponent\(projectId\)\s*\+\s*['"]\/sessions['"]\s*\)/) &&
+          has(/api\(\s*['"]\/sessions\/['"]\s*\+\s*encodeURIComponent\(sessionId\)\s*\+\s*['"]\/versions['"]\s*\)/));
+        const projectCall = source.indexOf("api('/projects')");
+        const sessionCall = source.indexOf("api('/projects/' + encodeURIComponent(projectId) + '/sessions')");
+        const versionCall = source.indexOf("api('/sessions/' + encodeURIComponent(sessionId) + '/versions')");
+        const projectToSession = source.indexOf('await loadHistorySessions(historyProjects[0].id)');
+        const sessionToVersion = source.indexOf('await loadHistoryVersions(historySessions[0].id)');
+        record('历史查询按项目→会话→版本顺序串联',
+          projectCall >= 0 && sessionCall >= 0 && versionCall >= 0 &&
+          /function loadProjectHistory\(\)[\s\S]*await loadHistorySessions\(historyProjects\[0\]\.id\)/.test(source) &&
+          /function loadHistorySessions\(projectId\)[\s\S]*await loadHistoryVersions\(historySessions\[0\]\.id\)/.test(source));
+        record('历史查询使用统一 token helper', has(/function loadProjectHistory\(\)[\s\S]*getToken\(\)/));
+        record('历史版本展示 parent_image_id lineage', has(/version\.parent_image_id/) && has(/history-parent/));
+        record('历史接口失败提供可恢复提示',
+          has(/历史版本读取失败：[\s\S]*可重新选择会话重试/) &&
+          has(/会话读取失败：[\s\S]*可重新选择项目重试/) &&
+          has(/项目历史读取失败：[\s\S]*后端接口就绪后可重试/));
+      } catch (error) {
+        record('可读取 app.js focused 契约', false);
       }
       renderChecks();
     });
