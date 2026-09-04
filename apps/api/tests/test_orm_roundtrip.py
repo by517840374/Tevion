@@ -44,12 +44,8 @@ def test_full_chain_roundtrip_on_postgres(session: Session) -> None:
     user = m.User(auth_provider="oidc", provider_subject="sub_abc", email="a@example.com")
     project = m.Project(user=user, name="Portrait Lab")
     persona = m.Persona(project=project, name="Hero A", reference_policy="private")
-    gen_session = m.Session(
-        project=project, persona=persona, mode="explore", raw_request="清爽成年男性"
-    )
-    run = m.GenerationRun(
-        session=gen_session, strategy_version="strategy_v1", provider_name="gpt-image-2"
-    )
+    gen_session = m.Session(project=project, persona=persona, mode="explore", raw_request="清爽成年男性")
+    run = m.GenerationRun(session=gen_session, strategy_version="strategy_v1", provider_name="gpt-image-2")
     image = m.ImageVersion(run=run, asset_uri="s3://tevion/image-1.png", width=1024, height=1280)
     feedback = m.FeedbackEvent(
         user=user,
@@ -82,9 +78,7 @@ def test_full_chain_roundtrip_on_postgres(session: Session) -> None:
     assert fetched.run.strategy_version == "strategy_v1"
     assert fetched.feedback_events[0].payload_json == {"rating": 5}
 
-    stored_pref = session.scalar(
-        select(m.PreferenceEvent).where(m.PreferenceEvent.user_id == user.id)
-    )
+    stored_pref = session.scalar(select(m.PreferenceEvent).where(m.PreferenceEvent.user_id == user.id))
     assert stored_pref is not None
     assert stored_pref.key == "lighting"
     assert stored_pref.value == "soft"

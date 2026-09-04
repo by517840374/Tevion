@@ -11,9 +11,9 @@ from .db import get_db
 from .models import ImageVersion, User
 from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
 from .schemas import (
+    AuthUserResponse,
     CreateTaskRequest,
     DevTokenResponse,
-    AuthUserResponse,
     FeedbackRequest,
     FeedbackResponse,
     GenerateResponse,
@@ -115,11 +115,15 @@ def create_task(
 
 
 def _image_summaries(db: OrmSession, run_id: str) -> list[ImageSummary]:
-    rows = db.scalars(
-        select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at)
-    ).all()
+    rows = db.scalars(select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at)).all()
     return [
-        ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height, parent_image_id=image.parent_image_id)
+        ImageSummary(
+            id=image.id,
+            url=image.asset_uri,
+            width=image.width,
+            height=image.height,
+            parent_image_id=image.parent_image_id,
+        )
         for image in rows
     ]
 
@@ -142,7 +146,13 @@ def generate_task(
         run_id=task.run.id,
         parent_run_id=task.run.parent_run_id,
         images=[
-            ImageSummary(id=image.id, url=image.asset_uri, width=image.width, height=image.height, parent_image_id=image.parent_image_id)
+            ImageSummary(
+                id=image.id,
+                url=image.asset_uri,
+                width=image.width,
+                height=image.height,
+                parent_image_id=image.parent_image_id,
+            )
             for image in images
         ],
     )
@@ -173,7 +183,11 @@ def get_task(
     )
 
 
-@app.post("/api/v1/tasks/{task_id}/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/api/v1/tasks/{task_id}/feedback",
+    response_model=FeedbackResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_feedback(
     task_id: str,
     payload: FeedbackRequest,

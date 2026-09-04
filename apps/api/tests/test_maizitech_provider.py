@@ -55,9 +55,7 @@ def test_submit_poll_and_normalize_completed_task() -> None:
 
     provider = _provider(handler)
     result = provider.generate(
-        GenerationRequest(
-            prompt="清爽成年男性肖像", output_count=2, aspect_ratio="1:1", quality="low"
-        )
+        GenerationRequest(prompt="清爽成年男性肖像", output_count=2, aspect_ratio="1:1", quality="low")
     )
 
     assert result.provider_request_id == "task_abc"
@@ -80,12 +78,8 @@ def test_submit_poll_and_normalize_completed_task() -> None:
 def test_failed_task_raises_without_exposing_key() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/images/generations"):
-            return httpx.Response(
-                200, json={"data": [{"task_id": "task_bad", "status": "pending"}]}
-            )
-        return httpx.Response(
-            200, json={"id": "task_bad", "status": "failed", "error_msg": f"boom {API_KEY}"}
-        )
+            return httpx.Response(200, json={"data": [{"task_id": "task_bad", "status": "pending"}]})
+        return httpx.Response(200, json={"id": "task_bad", "status": "failed", "error_msg": f"boom {API_KEY}"})
 
     provider = _provider(handler)
     with pytest.raises(ProviderResponseError) as exc:
@@ -95,9 +89,7 @@ def test_failed_task_raises_without_exposing_key() -> None:
 
 def test_sync_style_response_with_immediate_url() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json={"created": 1, "data": [{"url": "https://cdn.example.test/direct.png"}]}
-        )
+        return httpx.Response(200, json={"created": 1, "data": [{"url": "https://cdn.example.test/direct.png"}]})
 
     provider = _provider(handler)
     result = provider.generate(GenerationRequest(prompt="x", output_count=1))

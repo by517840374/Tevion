@@ -88,9 +88,7 @@ class GPTImageProvider:
             raise ProviderResponseError("provider response data is missing")
 
         asset_urls = [
-            item["url"]
-            for item in data
-            if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"]
+            item["url"] for item in data if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"]
         ]
         if not asset_urls:
             raise ProviderResponseError("provider response contains no asset URL")
@@ -158,9 +156,7 @@ class MaizitechImageProvider:
         }
         if request.output_count > 1:
             payload["n"] = request.output_count
-        response = self._client.post(
-            f"{self.base_url}/images/generations", headers=self._headers(), json=payload
-        )
+        response = self._client.post(f"{self.base_url}/images/generations", headers=self._headers(), json=payload)
         response.raise_for_status()
         body = response.json()
         items = body.get("data") or []
@@ -188,9 +184,7 @@ class MaizitechImageProvider:
             if status == "completed":
                 return body
             if status in {"failed", "error", "cancelled"}:
-                raise ProviderResponseError(
-                    self._redact(f"provider task failed: {body.get('error_msg') or status}")
-                )
+                raise ProviderResponseError(self._redact(f"provider task failed: {body.get('error_msg') or status}"))
             time.sleep(self.poll_interval_seconds)
         raise ProviderResponseError("provider task timed out")
 

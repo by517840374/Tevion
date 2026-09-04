@@ -47,9 +47,7 @@ class User(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (
-        UniqueConstraint("auth_provider", "provider_subject", name="uq_users_provider_subject"),
-    )
+    __table_args__ = (UniqueConstraint("auth_provider", "provider_subject", name="uq_users_provider_subject"),)
 
     projects: Mapped[list["Project"]] = relationship(back_populates="user")
 
@@ -57,9 +55,7 @@ class User(Base):
 class Project(Base):
     __tablename__ = "projects"
 
-    id: Mapped[str] = mapped_column(
-        String(64), primary_key=True, default=lambda: _new_id("project")
-    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("project"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
@@ -74,12 +70,8 @@ class Project(Base):
 class Persona(Base):
     __tablename__ = "personas"
 
-    id: Mapped[str] = mapped_column(
-        String(64), primary_key=True, default=lambda: _new_id("persona")
-    )
-    project_id: Mapped[str] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("persona"))
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     reference_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="private")
@@ -92,12 +84,8 @@ class Persona(Base):
 class Session(Base):
     __tablename__ = "sessions"
 
-    id: Mapped[str] = mapped_column(
-        String(64), primary_key=True, default=lambda: _new_id("session")
-    )
-    project_id: Mapped[str] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
-    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("session"))
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     persona_id: Mapped[str | None] = mapped_column(ForeignKey("personas.id", ondelete="SET NULL"))
     mode: Mapped[str] = mapped_column(String(16), nullable=False, default="explore")
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="created")
@@ -115,12 +103,8 @@ class GenerationRun(Base):
     __tablename__ = "generation_runs"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("run"))
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
-    parent_run_id: Mapped[str | None] = mapped_column(
-        ForeignKey("generation_runs.id", ondelete="SET NULL")
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    parent_run_id: Mapped[str | None] = mapped_column(ForeignKey("generation_runs.id", ondelete="SET NULL"))
     strategy_version: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     provider_name: Mapped[str | None] = mapped_column(String(64))
     model_name: Mapped[str | None] = mapped_column(String(120))
@@ -141,12 +125,8 @@ class ImageVersion(Base):
     __tablename__ = "image_versions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("image"))
-    run_id: Mapped[str] = mapped_column(
-        ForeignKey("generation_runs.id", ondelete="CASCADE"), nullable=False
-    )
-    parent_image_id: Mapped[str | None] = mapped_column(
-        ForeignKey("image_versions.id", ondelete="SET NULL")
-    )
+    run_id: Mapped[str] = mapped_column(ForeignKey("generation_runs.id", ondelete="CASCADE"), nullable=False)
+    parent_image_id: Mapped[str | None] = mapped_column(ForeignKey("image_versions.id", ondelete="SET NULL"))
     asset_uri: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(64))
     width: Mapped[int | None] = mapped_column(Integer)
@@ -162,16 +142,10 @@ class ImageVersion(Base):
 class FeedbackEvent(Base):
     __tablename__ = "feedback_events"
 
-    id: Mapped[str] = mapped_column(
-        String(64), primary_key=True, default=lambda: _new_id("feedback")
-    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("feedback"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
-    )
-    image_version_id: Mapped[str] = mapped_column(
-        ForeignKey("image_versions.id", ondelete="CASCADE"), nullable=False
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    image_version_id: Mapped[str] = mapped_column(ForeignKey("image_versions.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(String(24), nullable=False)
     payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = _ts()
@@ -184,9 +158,7 @@ class FeedbackEvent(Base):
 class PreferenceEvent(Base):
     __tablename__ = "preference_events"
 
-    id: Mapped[str] = mapped_column(
-        String(64), primary_key=True, default=lambda: _new_id("pref_event")
-    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("pref_event"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     scope: Mapped[str] = mapped_column(String(16), nullable=False)
     scope_id: Mapped[str | None] = mapped_column(String(64))
