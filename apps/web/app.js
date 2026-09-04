@@ -103,18 +103,38 @@ async function startOidcLogin() {
 async function handleOidcCallback() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
-  if (!code) return false;
-  const transaction = JSON.parse(sessionStorage.getItem(OIDC_TRANSACTION_KEY) || 'null');
+  if (!code && !params.get('error')) return false;
+  if (params.get('error')) throw new Error('OIDC 登录被取消或拒绝。');
+
+  let transaction;
+  try {
+    transaction = JSON.parse(sessionStorage.getItem(OIDC_TRANSACTION_KEY) || 'null');
+  } catch {
+    transaction = null;
+  }
   sessionStorage.removeItem(OIDC_TRANSACTION_KEY);
-  if (!transaction || params.get('state') !== transaction.state) throw new Error('OIDC state 校验失败。');
-  if (!OIDC_CONFIG || !OIDC_CONFIG.token_endpoint) throw new Error('OIDC token endpoint 未配置。');
+  if (!transaction || typeof transaction.state !== 'string' || typeof transaction.codeVerifier !== 'string' ||
+      params.get('state') !== transaction.state) {
+    throw new Error('OIDC state 校验失败。');
+  }
+  if (!OIDC_CONFIG || !OIDC_CONFIG.token_endpoint || !OIDC_CONFIG.client_id) {
+    throw new Error('OIDC token endpoint 未配置。');
+  }
   const body = new URLSearchParams({ grant_type: 'authorization_code', code,
     redirect_uri: OIDC_CONFIG.redirect_uri || window.location.href.split('?')[0],
     client_id: OIDC_CONFIG.client_id, code_verifier: transaction.codeVerifier });
-  const response = await fetch(OIDC_CONFIG.token_endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  let response;
+  try {
+    response = await fetch(OIDC_CONFIG.token_endpoint, { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  } catch {
+    throw new Error('OIDC token endpoint 无法连接。');
+  }
   if (!response.ok) throw new Error('OIDC token exchange 失败。');
   const data = await response.json();
-  if (!data.access_token) throw new Error('OIDC token exchange 未返回 access_token。');
+  if (!data.access_token || typeof data.access_token !== 'string') {
+    throw new Error('OIDC token exchange 未返回 access_token。');
+  }
   setToken(data.access_token);
   window.history.replaceState({}, document.title, window.location.pathname);
   return true;
