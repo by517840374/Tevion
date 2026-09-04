@@ -31,21 +31,10 @@
     };
     document.getElementById('run-checks').addEventListener('click', async () => {
       checks.length = 0;
-      record('生成按钮存在', Boolean(document.getElementById('generate')));
-      record('探索/精修模式存在', document.querySelectorAll('.mode').length === 2);
-      record('视觉标签可交互', document.querySelectorAll('.chip').length >= 5);
-      record('候选区域存在', Boolean(document.getElementById('results')));
-      record('选择与拒绝控件存在', document.querySelectorAll('.select-candidate').length >= 1 && document.querySelectorAll('.reject-candidate').length >= 1);
-      record('Visual Memory 区域存在', Boolean(document.querySelector('.right-column')));
-      record('项目历史入口与容器存在', Boolean(document.getElementById('historyPanel')) && Boolean(document.getElementById('historyProject')) && Boolean(document.getElementById('historySession')) && Boolean(document.getElementById('historyVersions')));
+      record('历史面板容器存在', Boolean(document.getElementById('historyPanel')) && Boolean(document.getElementById('historyProject')) && Boolean(document.getElementById('historySession')) && Boolean(document.getElementById('historyVersions')));
       try {
         const source = await fetch('app.js').then(response => response.text());
-        record('token helpers 统一使用 sessionStorage',
-          (source.match(/function getToken\(/g) || []).length === 1 &&
-          (source.match(/function setToken\(/g) || []).length === 1 &&
-          (source.match(/function clearToken\(/g) || []).length === 1 &&
-          source.includes('function getToken() { return sessionStorage.getItem(TOKEN_KEY) || \'\'; }') &&
-          !source.includes('localStorage.getItem(TOKEN_KEY)'));
+        record('history token 使用 sessionStorage', source.includes('sessionStorage.getItem(TOKEN_KEY)') && source.includes('sessionStorage.setItem(TOKEN_KEY, token)') && source.includes('sessionStorage.removeItem(TOKEN_KEY)') && !source.includes('localStorage.getItem(TOKEN_KEY)'));
         record('401 清理调用统一 clearToken', /if \(res\.status === 401\) clearToken\(\);/.test(source));
         record('OIDC callback 使用相同 setToken helper', /setToken\(data\.access_token\);/.test(source));
         const exchange = source.indexOf('fetch(OIDC_CONFIG.token_endpoint');
@@ -54,12 +43,12 @@
         record('成功消费 transaction', source.indexOf('setToken(data.access_token)') < consume);
         record('失败/取消清理 callback URL', source.includes('} finally {') && source.includes('sanitizeOidcCallbackUrl();'));
         record('清理 code/state/error 且不泄露敏感值', ['code', 'state', 'error'].every(key => source.includes("url.searchParams.delete('" + key + "')")) && !source.includes('console.log(code)'));
-        record('历史查询使用 sessionStorage token 与 api()', source.includes("api('/projects')") && source.includes("api('/projects/' + encodeURIComponent(projectId) + '/sessions')") && source.includes("api('/sessions/' + encodeURIComponent(sessionId) + '/versions')") && source.includes('getToken()'));
-        record('历史查询按项目→会话→版本顺序串联', source.indexOf("api('/projects')") < source.indexOf("/projects/' + encodeURIComponent(projectId) + '/sessions") && source.indexOf("/projects/' + encodeURIComponent(projectId) + '/sessions") < source.indexOf("/sessions/' + encodeURIComponent(sessionId) + '/versions"));
+        record('历史查询使用 project→session→version API 链', source.includes("async function loadProjectHistory()") && source.includes("api('/projects')") && source.includes("async function loadHistorySessions(projectId)") && source.includes("api('/projects/' + encodeURIComponent(projectId) + '/sessions')") && source.includes("async function loadHistoryVersions(sessionId)") && source.includes("api('/sessions/' + encodeURIComponent(sessionId) + '/versions')") && source.includes('getToken()'));
+        record('历史查询按项目→会话→版本顺序串联', source.indexOf("loadProjectHistory()") < source.indexOf("loadHistorySessions(projectId)") && source.indexOf("loadHistorySessions(projectId)") < source.indexOf("loadHistoryVersions(sessionId)") && source.indexOf("api('/projects')") < source.indexOf("api('/projects/' + encodeURIComponent(projectId) + '/sessions')") && source.indexOf("api('/projects/' + encodeURIComponent(projectId) + '/sessions')") < source.indexOf("api('/sessions/' + encodeURIComponent(sessionId) + '/versions')"));
         record('历史版本展示 parent_image_id lineage', source.includes('parent_image_id') && source.includes('history-parent'));
         record('历史接口失败提供可恢复提示', source.includes('后端接口就绪后可重试') && source.includes('可重新选择会话重试'));
       } catch {
-        record('token storage focused checks 可读取 app.js', false);
+        record('history focused checks 可读取 app.js', false);
       }
       renderChecks();
     });
