@@ -257,6 +257,25 @@ Reference material should be concise, versioned, and source-oriented. It explain
 
 Labels are signals for triage, not a replacement for the issue body. Each issue should still state the user outcome, scope, non-goals, acceptance criteria, and evidence required.
 
+## GitHub 协作语言规则
+
+Tevion 的 Issue 和 Pull Request 默认使用中文：
+
+- Issue 标题、正文、验收标准、进度评论使用中文；
+- PR 标题、正文、测试说明、合并说明使用中文；
+- 技术名词、API 路径、类名、模型名、命令和 Conventional Commit 类型保留原文；
+- 中文说明必须清楚表达用户结果、范围、非目标、验收标准、验证证据和当前状态。
+
+建议的 PR 结构：
+
+```text
+## 摘要
+## 完成内容
+## 非目标
+## 验证
+## 关联 Issue
+```
+
 ## Operating rule
 
 When unsure which category applies:
