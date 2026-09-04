@@ -43,16 +43,22 @@ _ALLOWED: dict[TaskState, frozenset[TaskState]] = {
     TaskState.EXPLORING: frozenset({TaskState.GENERATING}),
     TaskState.REFINING: frozenset({TaskState.GENERATING}),
     TaskState.GENERATING: frozenset({TaskState.EVALUATING, TaskState.NEEDS_USER_REVIEW}),
-    TaskState.EVALUATING: frozenset({TaskState.AWAITING_SELECTION, TaskState.RETRYING, TaskState.NEEDS_USER_REVIEW}),
+    TaskState.EVALUATING: frozenset(
+        {TaskState.AWAITING_SELECTION, TaskState.RETRYING, TaskState.NEEDS_USER_REVIEW}
+    ),
     TaskState.RETRYING: frozenset({TaskState.GENERATING, TaskState.NEEDS_USER_REVIEW}),
     TaskState.AWAITING_SELECTION: frozenset({TaskState.COMPLETED, TaskState.REFINING}),
-    TaskState.NEEDS_USER_REVIEW: frozenset({TaskState.PLANNING, TaskState.RETRYING, TaskState.COMPLETED}),
+    TaskState.NEEDS_USER_REVIEW: frozenset(
+        {TaskState.PLANNING, TaskState.RETRYING, TaskState.COMPLETED}
+    ),
     TaskState.COMPLETED: frozenset(),
 }
 
 
 class TaskRuntime:
-    def __init__(self, task_id: str, *, max_retries: int = 2, correlation_id: str | None = None) -> None:
+    def __init__(
+        self, task_id: str, *, max_retries: int = 2, correlation_id: str | None = None
+    ) -> None:
         if max_retries < 0:
             raise ValueError("max_retries must be non-negative")
         self.task_id = task_id
@@ -62,7 +68,9 @@ class TaskRuntime:
         self.correlation_id = correlation_id or task_id
         self.events: list[TaskEvent] = []
 
-    def transition(self, to_state: TaskState, *, event_type: str, payload: dict[str, Any] | None = None) -> TaskEvent:
+    def transition(
+        self, to_state: TaskState, *, event_type: str, payload: dict[str, Any] | None = None
+    ) -> TaskEvent:
         if to_state not in _ALLOWED[self.state]:
             raise InvalidTransition(f"cannot transition {self.state} -> {to_state}")
         if to_state == TaskState.RETRYING:

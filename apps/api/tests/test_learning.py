@@ -4,7 +4,9 @@ from tevion_api.learning import FeedbackEvidence, PreferenceProjector
 def test_explicit_feedback_outweighs_selection() -> None:
     projector = PreferenceProjector()
     events = [
-        FeedbackEvidence(scope="project", scope_id="p1", key="lighting", value="hard", source="selection"),
+        FeedbackEvidence(
+            scope="project", scope_id="p1", key="lighting", value="hard", source="selection"
+        ),
         FeedbackEvidence(
             scope="project",
             scope_id="p1",
@@ -23,7 +25,13 @@ def test_explicit_feedback_outweighs_selection() -> None:
 def test_session_instruction_does_not_update_user_scope() -> None:
     projector = PreferenceProjector()
     events = [
-        FeedbackEvidence(scope="session", scope_id="s1", key="background", value="simple", source="explicit_feedback"),
+        FeedbackEvidence(
+            scope="session",
+            scope_id="s1",
+            key="background",
+            value="simple",
+            source="explicit_feedback",
+        ),
     ]
 
     projection = projector.project(events)
@@ -35,8 +43,12 @@ def test_session_instruction_does_not_update_user_scope() -> None:
 def test_projection_is_deterministic_and_global_requires_consent() -> None:
     projector = PreferenceProjector()
     events = [
-        FeedbackEvidence(scope="global", key="lighting", value="soft", source="selection", consented=False),
-        FeedbackEvidence(scope="global", key="lighting", value="soft", source="selection", consented=True),
+        FeedbackEvidence(
+            scope="global", key="lighting", value="soft", source="selection", consented=False
+        ),
+        FeedbackEvidence(
+            scope="global", key="lighting", value="soft", source="selection", consented=True
+        ),
     ]
 
     first = projector.project(events)
@@ -50,8 +62,17 @@ def test_projection_is_deterministic_and_global_requires_consent() -> None:
 def test_deletion_tombstone_removes_preference() -> None:
     projector = PreferenceProjector()
     events = [
-        FeedbackEvidence(scope="project", scope_id="p1", key="lighting", value="soft", source="selection"),
-        FeedbackEvidence(scope="project", scope_id="p1", key="lighting", value="soft", source="explicit_feedback", deleted=True),
+        FeedbackEvidence(
+            scope="project", scope_id="p1", key="lighting", value="soft", source="selection"
+        ),
+        FeedbackEvidence(
+            scope="project",
+            scope_id="p1",
+            key="lighting",
+            value="soft",
+            source="explicit_feedback",
+            deleted=True,
+        ),
     ]
 
     assert projector.project(events) == []

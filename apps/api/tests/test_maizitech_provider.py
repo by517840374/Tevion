@@ -35,7 +35,10 @@ def test_submit_poll_and_normalize_completed_task() -> None:
             seen_auth.append(request.headers.get("authorization", ""))
             return httpx.Response(
                 200,
-                json={"created": 1714012800, "data": [{"task_id": "task_abc", "status": "pending"}]},
+                json={
+                    "created": 1714012800,
+                    "data": [{"task_id": "task_abc", "status": "pending"}],
+                },
             )
         assert request.url.path.endswith("/tasks/task_abc")
         return httpx.Response(
@@ -52,13 +55,19 @@ def test_submit_poll_and_normalize_completed_task() -> None:
 
     provider = _provider(handler)
     result = provider.generate(
-        GenerationRequest(prompt="清爽成年男性肖像", output_count=2, aspect_ratio="1:1", quality="low")
+        GenerationRequest(
+            prompt="清爽成年男性肖像", output_count=2, aspect_ratio="1:1", quality="low"
+        )
     )
 
     assert result.provider_request_id == "task_abc"
     assert result.asset_urls == ["https://cdn.example.test/result-1.png"]
     assert result.cost == 0.0081
-    assert result.metadata == {"provider": "maizitech", "params": {"size": "1:1", "quality": "low"}, "size": "1:1"}
+    assert result.metadata == {
+        "provider": "maizitech",
+        "params": {"size": "1:1", "quality": "low"},
+        "size": "1:1",
+    }
     # payload carries model/prompt/n but never the api key
     assert seen_bodies[0]["model"] == "gpt-image-2"
     assert seen_bodies[0]["prompt"] == "清爽成年男性肖像"
@@ -71,7 +80,9 @@ def test_submit_poll_and_normalize_completed_task() -> None:
 def test_failed_task_raises_without_exposing_key() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/images/generations"):
-            return httpx.Response(200, json={"data": [{"task_id": "task_bad", "status": "pending"}]})
+            return httpx.Response(
+                200, json={"data": [{"task_id": "task_bad", "status": "pending"}]}
+            )
         return httpx.Response(
             200, json={"id": "task_bad", "status": "failed", "error_msg": f"boom {API_KEY}"}
         )

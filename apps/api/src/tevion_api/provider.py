@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
@@ -181,9 +181,7 @@ class MaizitechImageProvider:
 
         deadline = time.monotonic() + self.timeout_seconds
         while time.monotonic() < deadline:
-            response = self._client.get(
-                f"{self.base_url}/tasks/{task_id}", headers=self._headers()
-            )
+            response = self._client.get(f"{self.base_url}/tasks/{task_id}", headers=self._headers())
             response.raise_for_status()
             body = response.json()
             status = (body.get("status") or "").lower()

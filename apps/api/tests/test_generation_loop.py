@@ -105,7 +105,12 @@ def db_override() -> Generator[None, None, None]:
 def _create_task(sub: str = "sub_gen") -> str:
     response = client.post(
         "/api/v1/tasks",
-        json={"request": "清爽成年男性，柔和侧光", "mode": "explore", "output_count": 2, "aspect_ratio": "1:1"},
+        json={
+            "request": "清爽成年男性，柔和侧光",
+            "mode": "explore",
+            "output_count": 2,
+            "aspect_ratio": "1:1",
+        },
         headers=_auth(sub),
     )
     assert response.status_code == 202

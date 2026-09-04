@@ -70,14 +70,18 @@ def db_override() -> Generator[None, None, None]:
     engine.dispose()
 
 
-def _create(db: OrmSession, *, subject: str, request_text: str = "清爽成年男性", mode: str = "explore") -> tuple[str, str]:
+def _create(
+    db: OrmSession, *, subject: str, request_text: str = "清爽成年男性", mode: str = "explore"
+) -> tuple[str, str]:
     user = m.User(auth_provider="oidc", provider_subject=subject)
     db.add(user)
     db.flush()
     project = m.Project(user_id=user.id, name="默认项目")
     db.add(project)
     db.flush()
-    session = m.Session(project_id=project.id, mode=mode, raw_request=request_text, status="created")
+    session = m.Session(
+        project_id=project.id, mode=mode, raw_request=request_text, status="created"
+    )
     db.add(session)
     db.flush()
     run = m.GenerationRun(session_id=session.id, strategy_version="default", status="created")
@@ -89,7 +93,12 @@ def _create(db: OrmSession, *, subject: str, request_text: str = "清爽成年�
 def test_create_task_persists_session_and_run(db_override: None) -> None:
     response = client.post(
         "/api/v1/tasks",
-        json={"request": "我想要清爽、少年感但成年的男性肖像", "mode": "explore", "output_count": 4, "aspect_ratio": "4:5"},
+        json={
+            "request": "我想要清爽、少年感但成年的男性肖像",
+            "mode": "explore",
+            "output_count": 4,
+            "aspect_ratio": "4:5",
+        },
         headers=_auth("sub_creator"),
     )
 

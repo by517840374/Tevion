@@ -7,7 +7,9 @@ from pydantic import BaseModel, Field
 class ProductMetadata(BaseModel):
     name: str = "Tevion"
     stage: str = "product-foundation"
-    initial_goal: str = "clearly adult male portraits with fresh youthful energy and deliberate lighting"
+    initial_goal: str = (
+        "clearly adult male portraits with fresh youthful energy and deliberate lighting"
+    )
     provider_status: str = "not_configured"
 
 
