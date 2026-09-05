@@ -307,6 +307,14 @@ def _parse_pixel_size(size: str | None) -> tuple[int | None, int | None]:
         return None, None
 
 
+def _safe_result_metadata(result: GenerationResult) -> dict:
+    metadata = result.metadata or {}
+    blocked_keys = {"api_key", "authorization", "headers", "raw_response", "private_image"}
+    return {
+        key: value for key, value in metadata.items() if key.lower() not in blocked_keys and key.lower() != "provider"
+    }
+
+
 def execute_generation(
     db: OrmSession,
     task: CreatedTask,
@@ -347,7 +355,12 @@ def execute_generation(
         raise
 
     images: list[ImageVersion] = []
-    width, height = _parse_pixel_size((result.metadata or {}).get("size"))
+    metadata = _safe_result_metadata(result)
+    metadata["provider"] = result.provider_name
+    metadata["model"] = result.model_name
+    metadata["provider_request_id"] = result.provider_request_id
+    metadata["metadata_source"] = result.metadata_source
+    width, height = _parse_pixel_size(metadata.get("size"))
     for asset_uri in result.asset_urls:
         image = ImageVersion(
             run_id=run.id,
@@ -356,12 +369,13 @@ def execute_generation(
             width=width,
             height=height,
             prompt=request.prompt,
-            metadata_json={"model": result.model_name, "provider": "maizitech"},
+            metadata_json=metadata,
         )
         db.add(image)
         images.append(image)
 
     run.status = "completed"
+    run.provider_name = result.provider_name
     run.model_name = result.model_name
     run.latency_ms = result.latency_ms
     run.estimated_cost = result.cost
