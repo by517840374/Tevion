@@ -264,12 +264,25 @@ def retry_task(
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     try:
-        retried = services.retry_failed_generation(
-            db, task, user_id=current_user.id, idempotency_key=idempotency_key
-        )
+        retried = services.retry_failed_generation(db, task, user_id=current_user.id, idempotency_key=idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    images = services.execute_generation(db, retried, provider)
+    if retried.run.status == "completed":
+        images = list(
+            db.scalars(
+                select(ImageVersion).where(ImageVersion.run_id == retried.run.id).order_by(ImageVersion.created_at)
+            )
+        )
+    elif retried.run.status == "generating":
+        return GenerateResponse(
+            task_id=retried.session.id,
+            status=TaskStatus.GENERATING,
+            run_id=retried.run.id,
+            parent_run_id=retried.run.parent_run_id,
+            images=[],
+        )
+    else:
+        images = services.execute_generation(db, retried, provider)
     return GenerateResponse(
         task_id=retried.session.id,
         status=TaskStatus(retried.session.status),
