@@ -13,7 +13,6 @@ def upgrade() -> None:
     op.add_column("generation_runs", sa.Column("idempotency_key", sa.String(length=255), nullable=True))
     op.add_column("generation_runs", sa.Column("request_fingerprint", sa.String(length=64), nullable=True))
     op.execute("UPDATE generation_runs SET user_id = (SELECT projects.user_id FROM projects JOIN sessions ON sessions.project_id = projects.id WHERE sessions.id = generation_runs.session_id)")
-    op.alter_column("generation_runs", "user_id", nullable=False)
     op.create_foreign_key("fk_generation_runs_user_id", "generation_runs", "users", ["user_id"], ["id"], ondelete="CASCADE")
     op.create_unique_constraint("uq_generation_runs_idempotency", "generation_runs", ["user_id", "session_id", "idempotency_key"])
 

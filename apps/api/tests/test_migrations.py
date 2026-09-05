@@ -79,4 +79,4 @@ def test_upgraded_test_database_has_no_model_drift(migration_database) -> None:
     command.check(_alembic_config())
 
     with migration_database.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "78cc1e16a72a"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "9d9f5e6a1b2c"

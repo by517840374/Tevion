@@ -137,18 +137,9 @@ def claim_generation(
     parameters: dict,
 ) -> CreatedTask:
     if idempotency_key is None:
-        run = GenerationRun(
-            session_id=task.session.id,
-            user_id=user_id,
-            parent_run_id=task.run.parent_run_id,
-            strategy_version=task.run.strategy_version,
-            status="created",
-            parameters_json=parameters,
-        )
-        db.add(run)
+        task.run.parameters_json = parameters
         db.commit()
-        db.refresh(run)
-        return CreatedTask(task.session, run)
+        return task
     fingerprint = hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     existing = db.scalar(
         select(GenerationRun).where(
