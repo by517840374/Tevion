@@ -187,6 +187,23 @@ def test_retry_failed_generation_creates_new_run_and_preserves_failed_run(db_ove
     engine.dispose()
 
 
+@pytest.mark.parametrize("status", ["unknown", "generating"])
+def test_retry_rejects_recoverable_run_without_provider_call(db_override: None, status: str) -> None:
+    task_id = _create_task(sub=f"retry-{status}")
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == task_id))
+        assert run is not None
+        run.status = status
+        session.commit()
+    engine.dispose()
+
+    response = client.post(f"/api/v1/tasks/{task_id}/retry", headers=_auth(f"retry-{status}"))
+    assert response.status_code == 409
+    assert response.json()["detail"] == "only failed generation runs can be retried"
+    assert fake_provider.calls == 0
+
+
 def test_retry_rejects_non_failed_run_without_provider_call(db_override: None) -> None:
     task_id = _create_task(sub="retry-reject")
     response = client.post(f"/api/v1/tasks/{task_id}/retry", headers=_auth("retry-reject"))
