@@ -119,6 +119,7 @@ class GenerationRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(48))
     error_message: Mapped[str | None] = mapped_column(Text)
+    provider_request_id: Mapped[str | None] = mapped_column(String(255))
 
     session: Mapped[Session] = relationship(back_populates="runs")
     image_versions: Mapped[list["ImageVersion"]] = relationship(back_populates="run")

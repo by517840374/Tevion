@@ -24,7 +24,7 @@ class ProviderError:
 def classify_provider_error(error: Exception) -> ProviderError:
     raw = str(error)
     lowered = raw.lower()
-    if isinstance(error, TimeoutError) or "timeout" in lowered:
+    if isinstance(error, TimeoutError) or "timeout" in lowered or "timed out" in lowered:
         return ProviderError("timeout", "provider request timed out", True)
     if "429" in lowered or "rate limit" in lowered:
         return ProviderError("rate_limit", "provider rate limit reached", True)
@@ -32,7 +32,7 @@ def classify_provider_error(error: Exception) -> ProviderError:
         return ProviderError("server_error", "provider server error", True)
     if "model" in lowered and "unavailable" in lowered:
         return ProviderError("model_unavailable", "requested model is unavailable", False)
-    if "malformed" in lowered or isinstance(error, ValueError):
+    if "malformed" in lowered or any(phrase in lowered for phrase in ("missing", "no asset", "no result", "cost is")):
         return ProviderError("malformed_response", "provider response is malformed", False)
     return ProviderError("provider_error", "provider request failed", False)
 

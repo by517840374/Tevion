@@ -222,10 +222,10 @@ def generate_task(
                 select(ImageVersion).where(ImageVersion.run_id == claimed.run.id).order_by(ImageVersion.created_at)
             )
         )
-    elif claimed.run.status == "generating":
+    elif claimed.run.status in {"generating", "unknown"}:
         return GenerateResponse(
             task_id=claimed.session.id,
-            status=TaskStatus.GENERATING,
+            status=TaskStatus.GENERATING if claimed.run.status == "generating" else TaskStatus.UNKNOWN,
             run_id=claimed.run.id,
             parent_run_id=claimed.run.parent_run_id,
             images=[],
