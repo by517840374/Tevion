@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
@@ -59,6 +60,9 @@ def test_submit_poll_and_normalize_completed_task() -> None:
     )
 
     assert result.provider_request_id == "task_abc"
+    assert result.provider_name == "maizitech"
+    assert result.model_name == "gpt-image-2"
+    assert result.metadata_source == "provider_response"
     assert result.asset_urls == ["https://cdn.example.test/result-1.png"]
     assert result.cost == 0.0081
     assert result.metadata == {
@@ -93,7 +97,62 @@ def test_sync_style_response_with_immediate_url() -> None:
 
     provider = _provider(handler)
     result = provider.generate(GenerationRequest(prompt="x", output_count=1))
+    assert result.provider_name == "maizitech"
+    assert result.metadata_source == "provider_response"
     assert result.asset_urls == ["https://cdn.example.test/direct.png"]
+
+
+def test_sync_results_do_not_leak_between_repeated_calls() -> None:
+    responses = iter(
+        [
+            {"data": [{"url": "https://cdn.example.test/first.png"}]},
+            {"data": [{"url": "https://cdn.example.test/second.png"}]},
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=next(responses))
+
+    provider = _provider(handler)
+    assert provider.generate(GenerationRequest(prompt="first")).asset_urls == ["https://cdn.example.test/first.png"]
+    assert provider.generate(GenerationRequest(prompt="second")).asset_urls == ["https://cdn.example.test/second.png"]
+
+
+def test_sync_results_are_isolated_for_concurrent_calls() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        prompt = json.loads(request.content)["prompt"]
+        return httpx.Response(200, json={"data": [{"url": f"https://cdn.example.test/{prompt}.png"}]})
+
+    provider = _provider(handler)
+    prompts = ["one", "two", "three", "four"]
+    with ThreadPoolExecutor(max_workers=len(prompts)) as executor:
+        results = list(executor.map(lambda prompt: provider.generate(GenerationRequest(prompt=prompt)), prompts))
+
+    assert [result.asset_urls for result in results] == [
+        [f"https://cdn.example.test/{prompt}.png"] for prompt in prompts
+    ]
+
+
+def test_metadata_redacts_secrets_and_raw_provider_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"task_id": "task_secret", "status": "pending"}]})
+
+    provider = _provider(handler)
+    provider._poll = lambda task_id: {  # type: ignore[method-assign]
+        "status": "completed",
+        "model": "gpt-image-2",
+        "result_urls": ["https://cdn.example.test/result.png"],
+        "params": {"size": "1:1"},
+        "authorization": f"Bearer {API_KEY}",
+        "raw_response": {"private_image": "data:image/png;base64,secret"},
+    }
+
+    result = provider.generate(GenerationRequest(prompt="x"))
+    serialized = json.dumps(result.metadata or {})
+    assert "authorization" not in serialized.lower()
+    assert API_KEY not in serialized
+    assert "private_image" not in serialized
+    assert result.metadata == {"provider": "maizitech", "params": {"size": "1:1"}, "size": "1:1"}
 
 
 def test_http_error_propagates_and_config_requires_key() -> None:

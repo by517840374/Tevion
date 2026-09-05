@@ -48,10 +48,12 @@ class GenerationRequest:
 
 @dataclass(frozen=True)
 class GenerationResult:
+    provider_name: str
     provider_request_id: str
     model_name: str
     asset_urls: list[str]
     latency_ms: int
+    metadata_source: str
     cost: float | None = None
     metadata: dict[str, Any] | None = None
 
@@ -99,10 +101,12 @@ class GPTImageProvider:
             raise ProviderResponseError("provider cost is malformed")
 
         return GenerationResult(
+            provider_name="gpt-image",
             provider_request_id=request_id,
             model_name=response.get("model", self.model_name),
             asset_urls=asset_urls,
             latency_ms=latency_ms,
+            metadata_source="provider_response",
             cost=float(cost) if cost is not None else None,
             metadata={"strategy_version": response.get("strategy_version")}
             if response.get("strategy_version")
@@ -144,10 +148,14 @@ class MaizitechImageProvider:
         self.poll_interval_seconds = poll_interval_seconds
         self.timeout_seconds = timeout_seconds
 
+    @property
+    def provider_name(self) -> str:
+        return "maizitech"
+
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
-    def _submit(self, request: GenerationRequest) -> str:
+    def _submit(self, request: GenerationRequest) -> tuple[str, list[dict[str, Any]]]:
         payload: dict[str, Any] = {
             "model": self.model_name,
             "prompt": request.prompt,
@@ -162,12 +170,11 @@ class MaizitechImageProvider:
         items = body.get("data") or []
         if items and isinstance(items[0], dict) and items[0].get("url"):
             # synchronous-style response with immediate URL
-            self._immediate = items
-            return ""
+            return "", [item for item in items if isinstance(item, dict)]
         task_id = items[0].get("task_id") if items else None
         if not isinstance(task_id, str) or not task_id:
             raise ProviderResponseError("provider returned no task id")
-        return task_id
+        return task_id, []
 
     def _redact(self, message: str) -> str:
         return message.replace(self.api_key, "[REDACTED]")
@@ -192,17 +199,19 @@ class MaizitechImageProvider:
         import time
 
         started = time.monotonic()
-        task_id = self._submit(request)
+        task_id, immediate_items = self._submit(request)
         latency_ms = int((time.monotonic() - started) * 1000)
         if task_id == "":
-            items = getattr(self, "_immediate", [])
-            urls = [item["url"] for item in items if item.get("url")]
+            urls = [item["url"] for item in immediate_items if item.get("url")]
             return GenerationResult(
+                provider_name=self.provider_name,
                 provider_request_id="",
                 model_name=self.model_name,
                 asset_urls=urls,
                 latency_ms=latency_ms,
+                metadata_source="provider_response",
                 cost=None,
+                metadata=None,
             )
         body = self._poll(task_id)
         latency_ms = int((time.monotonic() - started) * 1000)
@@ -210,17 +219,33 @@ class MaizitechImageProvider:
         if not urls:
             raise ProviderResponseError("completed task has no result URLs")
         return GenerationResult(
+            provider_name=self.provider_name,
             provider_request_id=task_id,
             model_name=body.get("model") or self.model_name,
             asset_urls=[url for url in urls if isinstance(url, str)],
             latency_ms=latency_ms,
+            metadata_source="provider_response",
             cost=float(body["cost"]) if body.get("cost") is not None else None,
-            metadata={
-                "provider": "maizitech",
-                "params": body.get("params"),
-                "size": (body.get("params") or {}).get("size"),
-            },
+            metadata=self._safe_metadata(body),
         )
+
+    def _safe_metadata(self, body: dict[str, Any]) -> dict[str, Any]:
+        params = body.get("params")
+        safe_params = (
+            {
+                key: value
+                for key, value in params.items()
+                if key in {"size", "quality"} and isinstance(value, (str, int, float, bool))
+            }
+            if isinstance(params, dict)
+            else None
+        )
+        metadata: dict[str, Any] = {"provider": self.provider_name}
+        if safe_params:
+            metadata["params"] = safe_params
+            if isinstance(safe_params.get("size"), str):
+                metadata["size"] = safe_params["size"]
+        return metadata
 
     def close(self) -> None:
         if self._owns_client:

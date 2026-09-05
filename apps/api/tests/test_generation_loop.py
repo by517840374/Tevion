@@ -31,6 +31,7 @@ class FakeProvider:
     def generate(self, request: GenerationRequest) -> GenerationResult:
         self.calls += 1
         return GenerationResult(
+            provider_name="fake",
             provider_request_id="fake_task_1",
             model_name="gpt-image-2",
             asset_urls=[
@@ -38,8 +39,9 @@ class FakeProvider:
                 "https://cdn.example.test/candidate-2.png",
             ],
             latency_ms=12,
+            metadata_source="fake_provider",
             cost=0.01,
-            metadata={"provider": "maizitech", "size": "1:1"},
+            metadata={"size": "1:1", "source": "fake-provider"},
         )
 
 
@@ -136,10 +138,24 @@ def test_generate_persists_images_and_updates_status(db_override: None) -> None:
         assert run is not None
         assert run.status == "completed"
         assert run.model_name == "gpt-image-2"
+        assert run.provider_name == "fake"
         assert run.estimated_cost == 0.01
         assert run.latency_ms == 12
         count = session.scalar(select(func.count(m.ImageVersion.id)).where(m.ImageVersion.run_id == run.id))
         assert count == 2
+        images = session.scalars(select(m.ImageVersion).where(m.ImageVersion.run_id == run.id)).all()
+        assert all(
+            image.metadata_json
+            == {
+                "provider": "fake",
+                "model": "gpt-image-2",
+                "size": "1:1",
+                "source": "fake-provider",
+                "provider_request_id": "fake_task_1",
+                "metadata_source": "fake_provider",
+            }
+            for image in images
+        )
         stored_session = session.get(m.Session, task_id)
         assert stored_session is not None
         assert stored_session.status == "awaiting_selection"
