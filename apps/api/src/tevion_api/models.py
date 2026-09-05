@@ -104,6 +104,9 @@ class GenerationRun(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("run"))
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64))
     parent_run_id: Mapped[str | None] = mapped_column(ForeignKey("generation_runs.id", ondelete="SET NULL"))
     strategy_version: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     provider_name: Mapped[str | None] = mapped_column(String(64))
@@ -119,6 +122,10 @@ class GenerationRun(Base):
 
     session: Mapped[Session] = relationship(back_populates="runs")
     image_versions: Mapped[list["ImageVersion"]] = relationship(back_populates="run")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "session_id", "idempotency_key", name="uq_generation_runs_idempotency"),
+    )
 
 
 class ImageVersion(Base):

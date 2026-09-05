@@ -98,6 +98,12 @@ class TaskDetail(BaseModel):
     images: list[ImageSummary] = Field(default_factory=list)
 
 
+class GenerateRequest(BaseModel):
+    output_count: int | None = Field(default=None, ge=1, le=4)
+    aspect_ratio: str | None = Field(default=None, pattern=r"^\d+:\d+$")
+    quality: str | None = Field(default=None, min_length=1, max_length=32)
+
+
 class GenerateResponse(BaseModel):
     task_id: str
     status: TaskStatus
