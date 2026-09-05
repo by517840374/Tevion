@@ -104,7 +104,7 @@ class GenerationRun(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("run"))
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     idempotency_key: Mapped[str | None] = mapped_column(String(255))
     request_fingerprint: Mapped[str | None] = mapped_column(String(64))
     parent_run_id: Mapped[str | None] = mapped_column(ForeignKey("generation_runs.id", ondelete="SET NULL"))
