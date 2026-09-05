@@ -39,14 +39,14 @@
         <div><label class="field-label">比例</label><select id="ratio"><option value="4:5">4:5 人像</option><option value="1:1">1:1 方形</option><option value="9:16">9:16 竖屏</option></select></div>
         <div><label class="field-label">候选数量</label><select id="count"><option value="4">4 张</option><option value="2">2 张</option></select></div>
       </div>
-      <button class="primary-button" id="generate">生成视觉方案 <span>→</span></button>
+      <button class="primary-button" id="generate" aria-describedby="loginHint">生成视觉方案 <span aria-hidden="true">→</span></button>
       <p class="privacy-note" id="loginHint">未登录：生成前请先完成「演示登录」。</p>
     </aside>
 
     <section class="center-column">
       <div class="section-heading">
         <div><div class="eyebrow">AGENT DIRECTOR</div><h2>我这样理解你的感觉</h2></div>
-        <span class="live-pill" id="agentState"><span class="status-dot"></span> 已准备</span>
+        <span class="live-pill" id="agentState" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span> 已准备</span>
       </div>
       <div class="understanding panel">
         <div class="interpretation"><span class="quote-mark">“</span><p id="interpretText">我会先解析你的文字与视觉标签，把感觉拆成可以比较的方向——主体、光影、镜头与色彩，再生成一组差异化的候选。真实理解 Agent 后续接入，当前为完整生成流程。</p></div>
@@ -57,7 +57,7 @@
         <div><div class="eyebrow">CANDIDATE DIRECTIONS</div><h2 id="resultsTitle">先从几种感觉里选一个方向</h2></div>
         <span class="muted" id="resultsMeta">等待生成</span>
       </div>
-      <div class="empty-results panel" id="results">
+      <div class="empty-results panel" id="results" aria-live="polite" aria-busy="false">
         <div class="empty-orbit"></div>
         <h3>你的视觉候选会出现在这里</h3>
         <p>Agent 会先探索差异，再根据你的选择逐步收敛。</p>

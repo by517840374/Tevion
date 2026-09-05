@@ -21,6 +21,7 @@
 .history-version small,.history-parent{font-size:10px;color:var(--muted);margin-top:4px}
 .history-parent{color:var(--accent2)}
 .history-error{color:#e8a08e}
+.history-retry{display:inline-block;margin:-2px 0 12px;padding:0;font-size:11px}
 
 /* toast */
 .toast{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:99;max-width:min(640px,92vw);padding:11px 18px;border-radius:8px;font-size:13px;line-height:1.5;box-shadow:0 10px 30px rgba(0,0,0,.45);animation:toast-in .22s ease-out}
@@ -59,6 +60,12 @@
 .error-box .actions{display:flex;gap:10px;justify-content:center}
 .primary-button:disabled{opacity:.5;cursor:not-allowed}
 .secondary-button:disabled{opacity:.5;cursor:not-allowed}
+.reject-candidate{cursor:pointer;border:0;background:transparent;color:#9caaa0;font-size:11px;padding:8px 4px}
+.reject-candidate:hover{color:#e8a08e}
+.candidate.rejected{opacity:.7}
+.candidate.rejected .img-wrap{filter:saturate(.45)}
+.rejected-flag{position:absolute;top:10px;left:10px;background:#33221e;color:#ffd2c9;border:1px solid #8a4a3f;font-size:10px;padding:4px 8px;border-radius:4px}
+button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 
 /* candidate grid & cards */
 .candidate-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:14px}
@@ -84,4 +91,5 @@
 .regen-button:hover{background:#2a3527}
 
 @media(max-width:1050px){.workspace{grid-template-columns:280px 1fr}.right-column{display:none}}
-@media(max-width:700px){.topbar{padding:0 16px}.topbar-meta{display:none}.auth-chip span{display:none}}
+@media(max-width:700px){.topbar{padding:0 16px}.topbar-meta{display:none}.auth-chip span{display:none}.workspace{display:block;min-height:0}.sidebar,.center-column,.right-column{padding:24px 16px}.sidebar h1{font-size:26px;margin-bottom:26px}.center-column{padding-top:30px}.right-column{display:block;border:1px solid var(--line);border-top:0}.topbar{height:62px}.topbar-actions{gap:6px}.topbar-actions #profileBtn{display:none}.candidate-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.candidate-meta{padding:9px;align-items:flex-start;flex-wrap:wrap}.candidate-meta .card-info{width:100%}.select-candidate{flex:1}.reject-candidate{flex:0 0 auto}.gen-steps{overflow-x:auto;white-space:nowrap;padding-bottom:4px}.mode-switch{overflow-x:auto}.mode{flex:0 0 auto}}
+@media(max-width:420px){.candidate-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.result-actions{align-items:flex-start}.result-actions .live-pill{order:-1}}

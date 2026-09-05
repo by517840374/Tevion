@@ -94,7 +94,20 @@ function renderHistoryMessage(message, error = false) {
   if (status) {
     status.textContent = message;
     status.className = 'muted intro' + (error ? ' history-error' : '');
+    if (!error) document.getElementById('historyRetry')?.remove();
   }
+}
+
+function renderHistoryRetry() {
+  const status = $('historyStatus');
+  if (!status || $('historyRetry')) return;
+  const retry = document.createElement('button');
+  retry.id = 'historyRetry';
+  retry.className = 'text-button history-retry';
+  retry.type = 'button';
+  retry.textContent = '重新加载历史 →';
+  retry.addEventListener('click', loadProjectHistory);
+  status.insertAdjacentElement('afterend', retry);
 }
 
 function renderHistoryOptions(select, items, emptyText) {
@@ -135,6 +148,7 @@ async function loadHistoryVersions(sessionId) {
   } catch (err) {
     renderHistoryVersions([]);
     renderHistoryMessage('历史版本读取失败：' + err.message + ' 可重新选择会话重试。', true);
+    renderHistoryRetry();
   }
 }
 
@@ -154,6 +168,7 @@ async function loadHistorySessions(projectId) {
     historySessions = [];
     renderHistoryOptions(sessionSelect, [], '暂无会话');
     renderHistoryMessage('会话读取失败：' + err.message + ' 可重新选择项目重试。', true);
+    renderHistoryRetry();
   }
 }
 
@@ -177,6 +192,7 @@ async function loadProjectHistory() {
     renderHistoryOptions(projectSelect, [], '暂无项目');
     renderHistoryVersions([]);
     renderHistoryMessage('项目历史读取失败：' + err.message + ' 后端接口就绪后可重试。', true);
+    renderHistoryRetry();
   }
 }
 
@@ -343,6 +359,7 @@ function resetResults(msg) {
   stopElapsed();
   const r = $('results');
   r.className = 'empty-results panel';
+  r.setAttribute('aria-busy', 'false');
   r.innerHTML = '<div class="empty-orbit"></div><h3>你的视觉候选会出现在这里</h3><p>' + (msg || '点击「生成视觉方案」，Agent 将创建任务并真实生成候选图片。') + '</p>';
   const cta = document.createElement('button');
   cta.className = 'secondary-button';
@@ -358,6 +375,8 @@ function resetResults(msg) {
 function renderLoading(stepIdx, mainText, subText) {
   const r = $('results');
   r.className = 'results panel';
+  r.setAttribute('aria-live', 'polite');
+  r.setAttribute('aria-busy', 'true');
   const steps = ['创建任务', '生成候选'];
   r.innerHTML =
     '<div class="loading-block">' +
@@ -389,6 +408,7 @@ function renderResults(images) {
   chosenId = null;
   const r = $('results');
   r.className = 'results panel';
+  r.setAttribute('aria-busy', 'false');
   $('resultsTitle').textContent = '你的视觉候选已就绪，选一张最接近你感觉的';
   $('resultsMeta').textContent = images.length + ' 张候选 · 已就绪';
 
@@ -406,8 +426,8 @@ function renderResults(images) {
             '<span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' +
             (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
           '</div>' +
-          '<button class="select-candidate" data-select="' + escapeHtml(img.id) + '">选择</button>' +
-          '<button class="reject-candidate" data-reject="' + escapeHtml(img.id) + '">拒绝</button>' +
+          '<button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
+          '<button type="button" class="reject-candidate" aria-label="拒绝候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button>' +
         '</div>' +
       '</article>'
     );
@@ -681,6 +701,7 @@ async function handleGenerate({ reuse = false } = {}) {
     toast('生成失败：' + msg, 'error', 9000);
     const r = $('results');
     r.className = 'results panel';
+    r.setAttribute('aria-busy', 'false');
     const taskId = currentTask && currentTask.task_id;
     r.innerHTML =
       '<div class="error-box">' +

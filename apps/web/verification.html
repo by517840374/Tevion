@@ -66,6 +66,10 @@
           has(/历史版本读取失败：[\s\S]*可重新选择会话重试/) &&
           has(/会话读取失败：[\s\S]*可重新选择项目重试/) &&
           has(/项目历史读取失败：[\s\S]*后端接口就绪后可重试/));
+        record('工作台状态与候选操作具备可访问性契约',
+          has(/aria-live/) && has(/aria-busy/) &&
+          has(/aria-label=.*选择候选/) && has(/aria-label=.*拒绝候选/));
+        record('历史面板失败状态提供显式重试入口', has(/historyRetry/) && has(/loadProjectHistory\(\)/));
       } catch (error) {
         record('可读取 app.js focused 契约', false);
       }
