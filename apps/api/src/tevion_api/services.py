@@ -35,6 +35,21 @@ class OwnedImageVersion:
     image: ImageVersion
 
 
+@dataclass(frozen=True)
+class TaskRuntimeProjection:
+    task_id: str
+    state: str
+    session_status: str
+    generation_status: str
+    retry_count: int = 0
+    max_retries: int = 2
+    event_count: int = 0
+
+    @property
+    def correlation_id(self) -> str:
+        return self.task_id
+
+
 class ProjectNotFoundError(ValueError):
     """Raised when a requested project is not owned by the current user."""
 
@@ -120,6 +135,36 @@ def get_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask
         return None
     session, run = row
     return CreatedTask(session=session, run=run)
+
+
+def get_runtime_projection_for_user(db: OrmSession, user_id: str, task_id: str) -> TaskRuntimeProjection | None:
+    """Read the owner task and project its committed task/attempt statuses."""
+    session = db.scalar(
+        select(Session)
+        .join(Project, Session.project_id == Project.id)
+        .where(Session.id == task_id, Project.user_id == user_id)
+    )
+    if session is None:
+        return None
+    run = db.scalar(
+        select(GenerationRun)
+        .where(GenerationRun.session_id == session.id)
+        .order_by(GenerationRun.started_at.desc().nullslast(), GenerationRun.id.desc())
+        .limit(1)
+    )
+    generation_status = run.status if run is not None else "created"
+    if generation_status == "generating":
+        state = "generating"
+    elif generation_status == "failed":
+        state = "needs_user_review"
+    else:
+        state = session.status
+    return TaskRuntimeProjection(
+        task_id=session.id,
+        state=state,
+        session_status=session.status,
+        generation_status=generation_status,
+    )
 
 
 def list_projects_for_user(db: OrmSession, user_id: str) -> list[Project]:

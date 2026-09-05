@@ -28,6 +28,7 @@ from .schemas import (
     SessionListResponse,
     SessionSummary,
     TaskDetail,
+    TaskRuntimeResponse,
     TaskStatus,
     TaskSummary,
 )
@@ -316,13 +317,25 @@ def get_preferences(
     )
 
 
-@app.get("/api/v1/tasks/{task_id}/runtime")
-def task_runtime(task_id: str) -> dict[str, object]:
-    """Expose the bounded runtime shape while persistence is not yet wired."""
-    from .runtime import TaskRuntime
-
-    runtime = TaskRuntime(task_id)
-    return runtime.snapshot()
+@app.get("/api/v1/tasks/{task_id}/runtime", response_model=TaskRuntimeResponse)
+def task_runtime(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> TaskRuntimeResponse:
+    projection = services.get_runtime_projection_for_user(db, current_user.id, task_id)
+    if projection is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return TaskRuntimeResponse(
+        task_id=projection.task_id,
+        state=TaskStatus(projection.state),
+        session_status=projection.session_status,
+        generation_status=projection.generation_status,
+        retry_count=projection.retry_count,
+        max_retries=projection.max_retries,
+        correlation_id=projection.correlation_id,
+        event_count=projection.event_count,
+    )
 
 
 __all__ = ["app"]

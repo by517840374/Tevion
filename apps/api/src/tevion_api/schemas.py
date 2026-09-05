@@ -106,6 +106,17 @@ class GenerateResponse(BaseModel):
     images: list[ImageSummary] = Field(default_factory=list)
 
 
+class TaskRuntimeResponse(BaseModel):
+    task_id: str
+    state: TaskStatus
+    session_status: str
+    generation_status: str
+    retry_count: int = 0
+    max_retries: int = 2
+    correlation_id: str
+    event_count: int = 0
+
+
 class DevTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
