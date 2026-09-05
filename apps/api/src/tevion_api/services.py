@@ -22,6 +22,7 @@ from .provider import (
     GenerationResult,
     ImageGenerationProvider,
     ProviderResponseError,
+    classify_provider_error,
 )
 
 
@@ -224,8 +225,8 @@ def get_runtime_projection_for_user(db: OrmSession, user_id: str, task_id: str) 
         .limit(1)
     )
     generation_status = run.status if run is not None else "created"
-    if generation_status == "generating":
-        state = "generating"
+    if generation_status in {"generating", "unknown"}:
+        state = "recovery_required"
     elif generation_status == "failed":
         state = "needs_user_review"
     else:
@@ -453,6 +454,12 @@ def execute_generation(
     re-raised so the API can map it to an HTTP error.
     """
     session, run = task.session, task.run
+    if run.status == "completed":
+        return list(
+            db.scalars(select(ImageVersion).where(ImageVersion.run_id == run.id).order_by(ImageVersion.created_at))
+        )
+    if run.status in {"generating", "unknown"}:
+        return []
     parameters = run.parameters_json or {}
     now = datetime.now(timezone.utc)
 
@@ -469,9 +476,15 @@ def execute_generation(
     try:
         result: GenerationResult = provider.generate(request)
     except ProviderResponseError as exc:
-        run.status = "failed"
-        run.error_code = "provider_error"
-        run.error_message = str(exc)
+        classification = classify_provider_error(exc)
+        if classification.code == "timeout":
+            run.status = "unknown"
+            run.error_code = "provider_timeout_unknown"
+            run.error_message = "provider request outcome is unknown; recovery required"
+        else:
+            run.status = "failed"
+            run.error_code = classification.code
+            run.error_message = str(exc)[:2000] if classification.code == "provider_error" else classification.message
         db.commit()
         raise
     except Exception as exc:  # noqa: BLE001 - record any provider failure
@@ -503,6 +516,7 @@ def execute_generation(
 
     run.status = "completed"
     run.provider_name = result.provider_name
+    run.provider_request_id = result.provider_request_id or None
     run.model_name = result.model_name
     run.latency_ms = result.latency_ms
     run.estimated_cost = result.cost

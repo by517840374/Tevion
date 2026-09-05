@@ -25,6 +25,8 @@ class TaskStatus(StrEnum):
     RETRYING = "retrying"
     NEEDS_USER_REVIEW = "needs_user_review"
     COMPLETED = "completed"
+    UNKNOWN = "unknown"
+    RECOVERY_REQUIRED = "recovery_required"
 
 
 class CreateTaskRequest(BaseModel):
