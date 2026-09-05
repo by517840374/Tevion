@@ -9,6 +9,7 @@ from tevion_api.provider import (
     GenerationRequest,
     MaizitechImageProvider,
     ProviderConfigError,
+    ProviderOperationStatus,
     ProviderResponseError,
 )
 
@@ -166,3 +167,65 @@ def test_http_error_propagates_and_config_requires_key() -> None:
 
     with pytest.raises(ProviderConfigError):
         MaizitechImageProvider(api_key="  ", http_client=httpx.Client())
+
+
+def test_submit_returns_persistable_request_id_without_polling() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        return httpx.Response(200, json={"data": [{"task_id": "task_submit", "status": "pending"}]})
+
+    result = _provider(handler).submit(GenerationRequest(prompt="x"))
+
+    assert result.status is ProviderOperationStatus.PENDING
+    assert result.provider_request_id == "task_submit"
+    assert calls == ["POST"]
+
+
+def test_submit_response_loss_is_structured_unknown() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("connection lost after submit")
+
+    result = _provider(handler).submit(GenerationRequest(prompt="x"))
+
+    assert result.status is ProviderOperationStatus.UNKNOWN
+    assert result.provider_request_id is None
+    assert result.error_code == "submit_unknown"
+
+
+def test_poll_timeout_keeps_request_id_and_is_unknown() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        raise httpx.ReadTimeout("poll timed out")
+
+    result = _provider(handler).poll("task_poll")
+
+    assert result.status is ProviderOperationStatus.UNKNOWN
+    assert result.provider_request_id == "task_poll"
+    assert result.error_code == "poll_unknown"
+
+
+def test_resume_completed_and_failed_only_query_provider() -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.method)
+        task_id = request.url.path.rsplit("/", 1)[-1]
+        if task_id == "task_done":
+            return httpx.Response(
+                200,
+                json={"id": task_id, "status": "completed", "result_urls": ["https://cdn.test/done.png"]},
+            )
+        return httpx.Response(200, json={"id": task_id, "status": "failed", "error_msg": "rejected"})
+
+    provider = _provider(handler)
+    completed = provider.resume("task_done")
+    failed = provider.resume("task_failed")
+
+    assert completed.status is ProviderOperationStatus.COMPLETED
+    assert completed.provider_request_id == "task_done"
+    assert completed.result is not None
+    assert failed.status is ProviderOperationStatus.FAILED
+    assert failed.provider_request_id == "task_failed"
+    assert requested == ["GET", "GET"]
