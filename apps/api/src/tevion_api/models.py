@@ -120,6 +120,12 @@ class GenerationRun(Base):
     error_code: Mapped[str | None] = mapped_column(String(48))
     error_message: Mapped[str | None] = mapped_column(Text)
     provider_request_id: Mapped[str | None] = mapped_column(String(255))
+    phase: Mapped[str | None] = mapped_column(String(32))
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reconciliation_required: Mapped[bool | None] = mapped_column(Boolean)
+    reconciliation_reason: Mapped[str | None] = mapped_column(String(255))
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     session: Mapped[Session] = relationship(back_populates="runs")
     image_versions: Mapped[list["ImageVersion"]] = relationship(back_populates="run")

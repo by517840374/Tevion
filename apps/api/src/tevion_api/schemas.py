@@ -98,6 +98,43 @@ class TaskDetail(BaseModel):
     aspect_ratio: str | None = None
     created_at: datetime
     images: list[ImageSummary] = Field(default_factory=list)
+    phase: str | None = None
+    provider_request_id: str | None = None
+    provider_name: str | None = None
+    model_name: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    last_polled_at: datetime | None = None
+    next_poll_at: datetime | None = None
+    finalized_at: datetime | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    estimated_cost: float | None = None
+    reconciliation_required: bool | None = None
+    reconciliation_reason: str | None = None
+    history: list["GenerationRunResponse"] = Field(default_factory=list)
+
+
+class GenerationRunResponse(BaseModel):
+    task_id: str
+    run_id: str
+    status: str
+    phase: str | None = None
+    provider_name: str | None = None
+    model_name: str | None = None
+    provider_request_id: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    last_polled_at: datetime | None = None
+    next_poll_at: datetime | None = None
+    finalized_at: datetime | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    estimated_cost: float | None = None
+    images: list[ImageSummary] = Field(default_factory=list)
+    reconciliation_required: bool | None = None
+    reconciliation_reason: str | None = None
 
 
 class GenerateRequest(BaseModel):

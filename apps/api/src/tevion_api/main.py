@@ -18,6 +18,7 @@ from .schemas import (
     FeedbackResponse,
     GenerateRequest,
     GenerateResponse,
+    GenerationRunResponse,
     HealthResponse,
     ImageSummary,
     ImageVersionListResponse,
@@ -193,6 +194,39 @@ def _image_summaries(db: OrmSession, run_id: str) -> list[ImageSummary]:
     ]
 
 
+def _redacted_error(message: str | None) -> str | None:
+    if message is None:
+        return None
+    if any(token in message.lower() for token in ("authorization", "api_key", "secret", "token")):
+        return "[redacted]"
+    return message
+
+
+def _run_response(db: OrmSession, task: services.CreatedTask) -> GenerationRunResponse:
+    run = task.run
+    return GenerationRunResponse(
+        task_id=task.session.id,
+        run_id=run.id,
+        status=run.status,
+        phase=run.phase,
+        provider_name=run.provider_name,
+        model_name=run.model_name,
+        provider_request_id=run.provider_request_id,
+        created_at=task.session.created_at,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        last_polled_at=run.last_polled_at,
+        next_poll_at=run.next_poll_at,
+        finalized_at=run.finalized_at,
+        error_code=run.error_code,
+        error_message=_redacted_error(run.error_message),
+        estimated_cost=run.estimated_cost,
+        images=_image_summaries(db, run.id),
+        reconciliation_required=run.reconciliation_required,
+        reconciliation_reason=run.reconciliation_reason,
+    )
+
+
 @app.post("/api/v1/tasks/{task_id}/generate", response_model=GenerateResponse)
 def generate_task(
     task_id: str,
@@ -311,6 +345,8 @@ def get_task(
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     params = task.run.parameters_json or {}
+    latest = _run_response(db, task)
+    history = services.list_generation_runs_for_user(db, current_user.id, task_id) or []
     return TaskDetail(
         task_id=task.session.id,
         status=TaskStatus(task.session.status),
@@ -322,8 +358,36 @@ def get_task(
         output_count=params.get("output_count"),
         aspect_ratio=params.get("aspect_ratio"),
         created_at=task.session.created_at,
-        images=_image_summaries(db, task.run.id),
+        images=latest.images,
+        phase=latest.phase,
+        provider_request_id=latest.provider_request_id,
+        provider_name=latest.provider_name,
+        model_name=latest.model_name,
+        started_at=latest.started_at,
+        completed_at=latest.completed_at,
+        last_polled_at=latest.last_polled_at,
+        next_poll_at=latest.next_poll_at,
+        finalized_at=latest.finalized_at,
+        error_code=latest.error_code,
+        error_message=latest.error_message,
+        estimated_cost=latest.estimated_cost,
+        reconciliation_required=latest.reconciliation_required,
+        reconciliation_reason=latest.reconciliation_reason,
+        history=[_run_response(db, item) for item in history],
     )
+
+
+@app.get("/api/v1/tasks/{task_id}/generations/{run_id}", response_model=GenerationRunResponse)
+def get_generation_run(
+    task_id: str,
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> GenerationRunResponse:
+    task = services.get_generation_run_for_user(db, current_user.id, task_id, run_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="generation run not found")
+    return _run_response(db, task)
 
 
 @app.post(
