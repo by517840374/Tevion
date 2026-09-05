@@ -13,6 +13,7 @@ from tevion_api.auth import DEFAULT_AUDIENCE
 from tevion_api.db import Base, get_db
 from tevion_api.main import app, get_image_provider
 from tevion_api.provider import GenerationRequest, GenerationResult
+from tevion_api.services import _safe_result_metadata
 
 TEST_DB_URL = os.environ.get(
     "TEVION_TEST_DB_URL",
@@ -46,6 +47,29 @@ class FakeProvider:
 
 
 fake_provider = FakeProvider()
+
+
+def test_result_metadata_redaction_is_recursive() -> None:
+    result = GenerationResult(
+        provider_name="fake",
+        provider_request_id="request-1",
+        model_name="model-1",
+        asset_urls=["https://cdn.example.test/image.png"],
+        latency_ms=1,
+        metadata_source="fake_provider",
+        metadata={
+            "safe": {"nested": "value"},
+            "Authorization": "Bearer secret",
+            "nested": {"api_key": "secret", "safe": True},
+            "items": [{"raw_response": {"private_image": "secret"}, "ok": 1}],
+        },
+    )
+
+    assert _safe_result_metadata(result) == {
+        "safe": {"nested": "value"},
+        "nested": {"safe": True},
+        "items": [{"ok": 1}],
+    }
 
 
 def _pg_reachable() -> bool:

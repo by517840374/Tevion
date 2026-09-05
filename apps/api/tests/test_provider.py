@@ -42,11 +42,13 @@ def test_provider_normalizes_a_valid_response_without_exposing_key() -> None:
     )
 
     assert isinstance(result, GenerationResult)
+    assert result.provider_name == "gpt-image"
     assert result.provider_request_id == "provider-request-1"
     assert result.model_name == "gpt-image-2"
     assert result.asset_urls == ["https://assets.example.test/image-1.png"]
     assert result.latency_ms == 321
     assert result.cost == 0.12
+    assert result.metadata_source == "provider_response"
     assert "secret" not in repr(result)
 
 
