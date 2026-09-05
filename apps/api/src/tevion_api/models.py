@@ -120,6 +120,8 @@ class GenerationRun(Base):
     error_code: Mapped[str | None] = mapped_column(String(48))
     error_message: Mapped[str | None] = mapped_column(Text)
     provider_request_id: Mapped[str | None] = mapped_column(String(255))
+    lease_owner: Mapped[str | None] = mapped_column(String(120))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     phase: Mapped[str | None] = mapped_column(String(32))
     last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
