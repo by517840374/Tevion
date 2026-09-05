@@ -206,6 +206,24 @@ def test_poll_timeout_keeps_request_id_and_is_unknown() -> None:
     assert result.error_code == "poll_unknown"
 
 
+def test_poll_timeout_keeps_request_id_when_provider_stays_pending() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(200, json={"id": "task_wait", "status": "processing"})
+
+    provider = MaizitechImageProvider(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        poll_interval_seconds=0.01,
+        timeout_seconds=0.02,
+    )
+    result = provider.poll("task_wait")
+
+    assert result.status is ProviderOperationStatus.UNKNOWN
+    assert result.provider_request_id == "task_wait"
+    assert result.error_code == "poll_timeout"
+
+
 def test_resume_completed_and_failed_only_query_provider() -> None:
     requested: list[str] = []
 
