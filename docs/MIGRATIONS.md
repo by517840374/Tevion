@@ -12,7 +12,7 @@ TEVION_DB_URL=postgresql+psycopg://.../tevion .venv/bin/alembic upgrade head
 .venv/bin/alembic check
 ```
 
-`upgrade head` 会创建当前 baseline `78cc1e16a72a` 定义的全部业务表和 `alembic_version`。后续 schema 变更必须创建新的 revision，不修改已应用的历史 revision。
+`upgrade head` 会从 baseline `78cc1e16a72a` 依次应用当前 migration 链，创建全部业务表和 `alembic_version`。当前 head 为 `5ab7c9d1e2f3`：generation idempotency/recovery 字段已纳入迁移链，`generation_runs.user_id` 明确保持 nullable，以兼容历史 generation run。后续 schema 变更必须创建新的 revision，不修改已应用的历史 revision。
 
 ## 已有历史数据
 
