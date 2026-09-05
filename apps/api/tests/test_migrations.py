@@ -21,6 +21,7 @@ API_DIR = Path(__file__).resolve().parents[1]
 
 def _alembic_config() -> Config:
     config = Config(str(API_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(API_DIR / "migrations"))
     config.set_main_option("sqlalchemy.url", TEST_DB_URL)
     os.environ["TEVION_DB_URL"] = TEST_DB_URL
     return config
