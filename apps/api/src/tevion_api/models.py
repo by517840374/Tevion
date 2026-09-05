@@ -129,11 +129,36 @@ class GenerationRun(Base):
     reconciliation_reason: Mapped[str | None] = mapped_column(String(255))
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    execution_jobs: Mapped[list["GenerationExecutionJob"]] = relationship(back_populates="generation_run")
     session: Mapped[Session] = relationship(back_populates="runs")
     image_versions: Mapped[list["ImageVersion"]] = relationship(back_populates="run")
 
     __table_args__ = (
         UniqueConstraint("user_id", "session_id", "idempotency_key", name="uq_generation_runs_idempotency"),
+    )
+
+
+class GenerationExecutionJob(Base):
+    __tablename__ = "generation_execution_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("job"))
+    generation_run_id: Mapped[str] = mapped_column(ForeignKey("generation_runs.id", ondelete="CASCADE"), nullable=False)
+    invocation_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    claimed_by: Mapped[str | None] = mapped_column(String(120))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    generation_run: Mapped[GenerationRun] = relationship(back_populates="execution_jobs")
+
+    __table_args__ = (
+        UniqueConstraint("generation_run_id", "invocation_id", "action", name="uq_generation_execution_job_invocation"),
     )
 
 
