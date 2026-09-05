@@ -1,12 +1,12 @@
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from . import services
 from .auth import create_dev_token, get_auth_settings, get_current_user
+from .cors import configure_cors
 from .db import get_db
 from .models import ImageVersion, User
 from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
@@ -34,12 +34,7 @@ from .schemas import (
 
 app = FastAPI(title="Tevion Product API", version="0.1.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+configure_cors(app)
 
 
 def get_image_provider() -> MaizitechImageProvider:
