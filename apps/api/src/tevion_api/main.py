@@ -267,7 +267,7 @@ def generate_task(
         )
     else:
         claimed.run.parameters_json = parameters
-        images = services.execute_generation(db, claimed, provider)
+        images = services.submit_or_resume_generation(db, claimed, provider, owner="http-generation") or []
     db.commit()
     return GenerateResponse(
         task_id=claimed.session.id,

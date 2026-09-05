@@ -92,19 +92,28 @@ def release_generation_lease(db: OrmSession, run_id: str, *, owner: str) -> bool
 
 def submit_or_resume_generation(
     db: OrmSession,
-    task: CreatedTask,
+    task: CreatedTask | str,
     provider: ImageGenerationProvider,
     *,
-    owner: str,
+    owner: str = "generation-worker",
     lease_seconds: int = 60,
 ) -> list[ImageVersion] | None:
-    """Execute or recover a run under a bounded DB lease."""
+    """Submit once or resume a persisted provider request under a DB lease."""
+    if isinstance(task, str):
+        run = db.get(GenerationRun, task)
+        if run is None:
+            return None
+        session = db.get(Session, run.session_id)
+        if session is None:
+            return None
+        task = CreatedTask(session=session, run=run)
     if not claim_generation_lease(db, task.run.id, owner=owner, lease_seconds=lease_seconds):
         return None
     try:
         if task.run.status == "unknown" and not task.run.provider_request_id:
             task.run.reconciliation_required = True
             task.run.reconciliation_reason = "restart recovery requires provider correlation"
+            task.run.status = "needs_user_review"
             db.commit()
             return []
         return execute_generation(db, task, provider)
