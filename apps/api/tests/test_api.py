@@ -25,14 +25,6 @@ def test_create_task_requires_authentication() -> None:
     assert response.status_code == 401
 
 
-def test_task_runtime_endpoint_exposes_bounded_snapshot() -> None:
+def test_task_runtime_endpoint_requires_authentication() -> None:
     response = client.get("/api/v1/tasks/task_1/runtime")
-    assert response.status_code == 200
-    assert response.json() == {
-        "task_id": "task_1",
-        "state": "created",
-        "retry_count": 0,
-        "max_retries": 2,
-        "correlation_id": "task_1",
-        "event_count": 0,
-    }
+    assert response.status_code == 401
