@@ -9,7 +9,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("generation_runs", sa.Column("user_id", sa.String(length=64), nullable=False))
+    op.add_column("generation_runs", sa.Column("user_id", sa.String(length=64), nullable=True))
     op.add_column("generation_runs", sa.Column("idempotency_key", sa.String(length=255), nullable=True))
     op.add_column("generation_runs", sa.Column("request_fingerprint", sa.String(length=64), nullable=True))
     op.execute("UPDATE generation_runs SET user_id = (SELECT projects.user_id FROM projects JOIN sessions ON sessions.project_id = projects.id WHERE sessions.id = generation_runs.session_id)")
