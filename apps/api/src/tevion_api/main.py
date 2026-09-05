@@ -252,6 +252,42 @@ def generate_task(
     )
 
 
+@app.post("/api/v1/tasks/{task_id}/retry", response_model=GenerateResponse)
+def retry_task(
+    task_id: str,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+    provider: MaizitechImageProvider = Depends(get_image_provider),
+) -> GenerateResponse:
+    task = services.get_latest_task_for_user(db, current_user.id, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    try:
+        retried = services.retry_failed_generation(
+            db, task, user_id=current_user.id, idempotency_key=idempotency_key
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    images = services.execute_generation(db, retried, provider)
+    return GenerateResponse(
+        task_id=retried.session.id,
+        status=TaskStatus(retried.session.status),
+        run_id=retried.run.id,
+        parent_run_id=retried.run.parent_run_id,
+        images=[
+            ImageSummary(
+                id=image.id,
+                url=image.asset_uri,
+                width=image.width,
+                height=image.height,
+                parent_image_id=image.parent_image_id,
+            )
+            for image in images
+        ],
+    )
+
+
 @app.get("/api/v1/tasks/{task_id}", response_model=TaskDetail)
 def get_task(
     task_id: str,

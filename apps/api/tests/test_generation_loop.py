@@ -143,6 +143,65 @@ def _create_task(sub: str = "sub_gen") -> str:
     return response.json()["task_id"]
 
 
+def test_retry_failed_generation_creates_new_run_and_preserves_failed_run(db_override: None) -> None:
+    task_id = _create_task(sub="retry-owner")
+    attempts = {"count": 0}
+
+    class RetryProvider:
+        def generate(self, request: GenerationRequest) -> GenerationResult:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise RuntimeError("first attempt failed")
+            return fake_provider.generate(request)
+
+    provider = RetryProvider()
+    app.dependency_overrides[get_image_provider] = lambda: provider
+    with pytest.raises(RuntimeError, match="first attempt failed"):
+        client.post(f"/api/v1/tasks/{task_id}/generate", headers=_auth("retry-owner"))
+
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        failed = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == task_id))
+        assert failed is not None
+        failed_id = failed.id
+        failed_error = (failed.error_code, failed.error_message)
+
+    response = client.post(f"/api/v1/tasks/{task_id}/retry", headers=_auth("retry-owner"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_id"] == task_id
+    assert body["run_id"] != failed_id
+    assert body["status"] == "awaiting_selection"
+    assert attempts["count"] == 2
+
+    with OrmSession(engine) as session:
+        runs = session.scalars(
+            select(m.GenerationRun).where(m.GenerationRun.session_id == task_id).order_by(m.GenerationRun.started_at)
+        ).all()
+        assert len(runs) == 2
+        assert (runs[0].error_code, runs[0].error_message) == failed_error
+        assert runs[0].status == "failed"
+        assert runs[1].status == "completed"
+        assert session.scalar(select(func.count(m.ImageVersion.id)).where(m.ImageVersion.run_id == runs[1].id)) == 2
+    engine.dispose()
+
+
+def test_retry_rejects_non_failed_run_without_provider_call(db_override: None) -> None:
+    task_id = _create_task(sub="retry-reject")
+    response = client.post(f"/api/v1/tasks/{task_id}/retry", headers=_auth("retry-reject"))
+    assert response.status_code == 409
+    assert response.json()["detail"] == "only failed generation runs can be retried"
+    assert fake_provider.calls == 0
+
+
+def test_retry_is_owner_only_and_missing_task_is_404(db_override: None) -> None:
+    task_id = _create_task(sub="retry-owner-only")
+    response = client.post(f"/api/v1/tasks/{task_id}/retry", headers=_auth("retry-other"))
+    assert response.status_code == 404
+    assert fake_provider.calls == 0
+
+
 def test_generate_persists_images_and_updates_status(db_override: None) -> None:
     task_id = _create_task()
 

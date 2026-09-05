@@ -209,6 +209,61 @@ def get_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask
     return CreatedTask(session=session, run=run)
 
 
+def get_latest_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask | None:
+    row = db.execute(
+        select(Session, GenerationRun)
+        .join(Project, Session.project_id == Project.id)
+        .join(GenerationRun, GenerationRun.session_id == Session.id)
+        .where(Session.id == task_id, Project.user_id == user_id)
+        .order_by(GenerationRun.started_at.desc().nullslast(), GenerationRun.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    session, run = row
+    return CreatedTask(session=session, run=run)
+
+
+def retry_failed_generation(
+    db: OrmSession,
+    task: CreatedTask,
+    *,
+    user_id: str,
+    idempotency_key: str | None,
+) -> CreatedTask:
+    parameters = dict(task.run.parameters_json or {})
+    fingerprint = hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if idempotency_key is not None:
+        existing = db.scalar(
+            select(GenerationRun).where(
+                GenerationRun.user_id == user_id,
+                GenerationRun.session_id == task.session.id,
+                GenerationRun.idempotency_key == idempotency_key,
+            )
+        )
+        if existing is not None:
+            if existing.request_fingerprint != fingerprint:
+                raise ValueError("idempotency_key_reused")
+            return CreatedTask(task.session, existing)
+    if task.run.status != "failed":
+        raise ValueError("only failed generation runs can be retried")
+    run = GenerationRun(
+        session_id=task.session.id,
+        user_id=user_id,
+        parent_run_id=task.run.id,
+        strategy_version=task.run.strategy_version,
+        status="created",
+        parameters_json=parameters,
+    )
+    if idempotency_key is not None:
+        run.idempotency_key = idempotency_key
+        run.request_fingerprint = fingerprint
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return CreatedTask(task.session, run)
+
+
 def get_runtime_projection_for_user(db: OrmSession, user_id: str, task_id: str) -> TaskRuntimeProjection | None:
     """Read the owner task and project its committed task/attempt statuses."""
     session = db.scalar(
