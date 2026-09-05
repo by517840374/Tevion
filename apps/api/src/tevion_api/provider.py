@@ -179,6 +179,24 @@ class MaizitechImageProvider:
     def _redact(self, message: str) -> str:
         return message.replace(self.api_key, "[REDACTED]")
 
+    def _safe_metadata(self, body: dict[str, Any]) -> dict[str, Any]:
+        params = body.get("params")
+        safe_params = (
+            {
+                key: value
+                for key, value in params.items()
+                if key in {"size", "quality"} and isinstance(value, (str, int, float, bool))
+            }
+            if isinstance(params, dict)
+            else None
+        )
+        metadata: dict[str, Any] = {"provider": self.provider_name}
+        if safe_params:
+            metadata["params"] = safe_params
+            if isinstance(safe_params.get("size"), str):
+                metadata["size"] = safe_params["size"]
+        return metadata
+
     def _poll(self, task_id: str) -> dict[str, Any]:
         import time
 
@@ -228,24 +246,6 @@ class MaizitechImageProvider:
             cost=float(body["cost"]) if body.get("cost") is not None else None,
             metadata=self._safe_metadata(body),
         )
-
-    def _safe_metadata(self, body: dict[str, Any]) -> dict[str, Any]:
-        params = body.get("params")
-        safe_params = (
-            {
-                key: value
-                for key, value in params.items()
-                if key in {"size", "quality"} and isinstance(value, (str, int, float, bool))
-            }
-            if isinstance(params, dict)
-            else None
-        )
-        metadata: dict[str, Any] = {"provider": self.provider_name}
-        if safe_params:
-            metadata["params"] = safe_params
-            if isinstance(safe_params.get("size"), str):
-                metadata["size"] = safe_params["size"]
-        return metadata
 
     def close(self) -> None:
         if self._owns_client:

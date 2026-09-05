@@ -307,12 +307,23 @@ def _parse_pixel_size(size: str | None) -> tuple[int | None, int | None]:
         return None, None
 
 
+def _redact_metadata_value(value: object, blocked_keys: set[str]) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _redact_metadata_value(item, blocked_keys)
+            for key, item in value.items()
+            if isinstance(key, str) and key.lower() not in blocked_keys
+        }
+    if isinstance(value, list):
+        return [_redact_metadata_value(item, blocked_keys) for item in value]
+    return value
+
+
 def _safe_result_metadata(result: GenerationResult) -> dict:
     metadata = result.metadata or {}
-    blocked_keys = {"api_key", "authorization", "headers", "raw_response", "private_image"}
-    return {
-        key: value for key, value in metadata.items() if key.lower() not in blocked_keys and key.lower() != "provider"
-    }
+    blocked_keys = {"api_key", "authorization", "headers", "raw_response", "private_image", "provider"}
+    redacted = _redact_metadata_value(metadata, blocked_keys)
+    return redacted if isinstance(redacted, dict) else {}
 
 
 def execute_generation(

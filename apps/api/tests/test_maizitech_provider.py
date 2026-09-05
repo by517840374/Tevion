@@ -97,6 +97,7 @@ def test_sync_style_response_with_immediate_url() -> None:
 
     provider = _provider(handler)
     result = provider.generate(GenerationRequest(prompt="x", output_count=1))
+    assert not hasattr(provider, "_immediate")
     assert result.provider_name == "maizitech"
     assert result.metadata_source == "provider_response"
     assert result.asset_urls == ["https://cdn.example.test/direct.png"]
