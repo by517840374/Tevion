@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Protocol
 
 import httpx
@@ -12,6 +13,13 @@ class ProviderConfigError(ValueError):
 
 class ProviderResponseError(ValueError):
     """Raised when a provider response cannot be normalized."""
+
+
+class ProviderOperationStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,15 @@ class GenerationResult:
     metadata_source: str
     cost: float | None = None
     metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ProviderOperationResult:
+    status: ProviderOperationStatus
+    provider_request_id: str | None
+    result: GenerationResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 class GPTImageProvider:
@@ -176,6 +193,29 @@ class MaizitechImageProvider:
             raise ProviderResponseError("provider returned no task id")
         return task_id, []
 
+    def submit(self, request: GenerationRequest) -> ProviderOperationResult:
+        """Submit exactly once and return the provider ID before polling."""
+        try:
+            task_id, immediate_items = self._submit(request)
+        except (httpx.TimeoutException, httpx.TransportError) as error:
+            return ProviderOperationResult(
+                ProviderOperationStatus.UNKNOWN,
+                None,
+                error_code="submit_unknown",
+                error_message=self._redact(str(error)),
+            )
+        if not task_id:
+            result = GenerationResult(
+                provider_name=self.provider_name,
+                provider_request_id="",
+                model_name=self.model_name,
+                asset_urls=[item["url"] for item in immediate_items if item.get("url")],
+                latency_ms=0,
+                metadata_source="provider_response",
+            )
+            return ProviderOperationResult(ProviderOperationStatus.COMPLETED, None, result=result)
+        return ProviderOperationResult(ProviderOperationStatus.PENDING, task_id)
+
     def _redact(self, message: str) -> str:
         return message.replace(self.api_key, "[REDACTED]")
 
@@ -212,6 +252,79 @@ class MaizitechImageProvider:
                 raise ProviderResponseError(self._redact(f"provider task failed: {body.get('error_msg') or status}"))
             time.sleep(self.poll_interval_seconds)
         raise ProviderResponseError("provider task timed out")
+
+    def _result_from_body(self, task_id: str, body: dict[str, Any]) -> ProviderOperationResult:
+        status = (body.get("status") or "").lower()
+        if status == "completed":
+            urls = body.get("result_urls") or []
+            if not urls:
+                return ProviderOperationResult(
+                    ProviderOperationStatus.FAILED,
+                    task_id,
+                    error_code="malformed_response",
+                    error_message="completed task has no result URLs",
+                )
+            result = GenerationResult(
+                provider_name=self.provider_name,
+                provider_request_id=task_id,
+                model_name=body.get("model") or self.model_name,
+                asset_urls=[url for url in urls if isinstance(url, str)],
+                latency_ms=0,
+                metadata_source="provider_response",
+                cost=float(body["cost"]) if body.get("cost") is not None else None,
+                metadata=self._safe_metadata(body),
+            )
+            return ProviderOperationResult(ProviderOperationStatus.COMPLETED, task_id, result=result)
+        if status in {"failed", "error", "cancelled"}:
+            return ProviderOperationResult(
+                ProviderOperationStatus.FAILED,
+                task_id,
+                error_code="provider_failed",
+                error_message=self._redact(str(body.get("error_msg") or status)),
+            )
+        return ProviderOperationResult(ProviderOperationStatus.PENDING, task_id)
+
+    def _query(self, task_id: str) -> ProviderOperationResult:
+        response = self._client.get(f"{self.base_url}/tasks/{task_id}", headers=self._headers())
+        response.raise_for_status()
+        return self._result_from_body(task_id, response.json())
+
+    def poll(self, provider_request_id: str) -> ProviderOperationResult:
+        """Poll an existing request, retaining its ID on transport uncertainty."""
+        import time
+
+        deadline = time.monotonic() + self.timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                outcome = self._query(provider_request_id)
+            except (httpx.TimeoutException, httpx.TransportError) as error:
+                return ProviderOperationResult(
+                    ProviderOperationStatus.UNKNOWN,
+                    provider_request_id,
+                    error_code="poll_unknown",
+                    error_message=self._redact(str(error)),
+                )
+            if outcome.status is not ProviderOperationStatus.PENDING:
+                return outcome
+            time.sleep(self.poll_interval_seconds)
+        return ProviderOperationResult(
+            ProviderOperationStatus.UNKNOWN,
+            provider_request_id,
+            error_code="poll_timeout",
+            error_message="provider task polling timed out",
+        )
+
+    def resume(self, provider_request_id: str) -> ProviderOperationResult:
+        """Recover by querying a persisted ID; this method never submits."""
+        try:
+            return self._query(provider_request_id)
+        except (httpx.TimeoutException, httpx.TransportError) as error:
+            return ProviderOperationResult(
+                ProviderOperationStatus.UNKNOWN,
+                provider_request_id,
+                error_code="resume_unknown",
+                error_message=self._redact(str(error)),
+            )
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
         import time
@@ -260,6 +373,8 @@ __all__ = [
     "MaizitechImageProvider",
     "ProviderConfigError",
     "ProviderResponseError",
+    "ProviderOperationStatus",
+    "ProviderOperationResult",
     "ProviderError",
     "classify_provider_error",
     "DEFAULT_MAIZI_BASE_URL",

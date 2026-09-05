@@ -21,6 +21,7 @@ from .provider import (
     GenerationRequest,
     GenerationResult,
     ImageGenerationProvider,
+    ProviderOperationStatus,
     ProviderResponseError,
     classify_provider_error,
 )
@@ -539,13 +540,15 @@ def execute_generation(
         return list(
             db.scalars(select(ImageVersion).where(ImageVersion.run_id == run.id).order_by(ImageVersion.created_at))
         )
-    if run.status in {"generating", "unknown"}:
+    if run.status == "generating":
         return []
+    resume_existing_request = run.status == "unknown" and bool(run.provider_request_id)
     parameters = run.parameters_json or {}
     now = datetime.now(timezone.utc)
 
-    run.status = "generating"
-    run.started_at = now
+    if not resume_existing_request:
+        run.status = "generating"
+        run.started_at = now
     db.flush()
 
     request = GenerationRequest(
@@ -555,7 +558,28 @@ def execute_generation(
         quality=str(parameters.get("quality") or "low"),
     )
     try:
-        result: GenerationResult = provider.generate(request)
+        if run.status == "unknown" and run.provider_request_id and hasattr(provider, "resume"):
+            operation = provider.resume(run.provider_request_id)  # type: ignore[attr-defined]
+        elif hasattr(provider, "submit"):
+            operation = provider.submit(request)  # type: ignore[attr-defined]
+            if operation.provider_request_id:
+                run.provider_request_id = operation.provider_request_id
+                db.commit()
+            if operation.status is ProviderOperationStatus.PENDING:
+                operation = provider.poll(operation.provider_request_id)  # type: ignore[attr-defined]
+            if operation.status is ProviderOperationStatus.UNKNOWN:
+                run.status = "unknown"
+                run.error_code = operation.error_code or "provider_unknown"
+                run.error_message = "provider request outcome is unknown; recovery required"
+                db.commit()
+                return []
+            if operation.status is ProviderOperationStatus.FAILED:
+                raise ProviderResponseError(operation.error_message or "provider task failed")
+        else:
+            operation = None
+        result: GenerationResult = operation.result if operation is not None else provider.generate(request)
+        if result is None:
+            raise ProviderResponseError("provider operation returned no result")
     except ProviderResponseError as exc:
         classification = classify_provider_error(exc)
         if classification.code == "timeout":
