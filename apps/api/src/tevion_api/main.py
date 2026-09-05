@@ -27,6 +27,7 @@ from .schemas import (
     ProductMetadata,
     ProjectListResponse,
     ProjectSummary,
+    ReconciliationRequest,
     SessionListResponse,
     SessionSummary,
     TaskDetail,
@@ -388,6 +389,29 @@ def get_generation_run(
     if task is None:
         raise HTTPException(status_code=404, detail="generation run not found")
     return _run_response(db, task)
+
+
+@app.post(
+    "/api/v1/tasks/{task_id}/generations/{run_id}/reconcile",
+    response_model=GenerationRunResponse,
+)
+def reconcile_generation(
+    task_id: str,
+    run_id: str,
+    payload: ReconciliationRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+    provider: MaizitechImageProvider = Depends(get_image_provider),
+) -> GenerationRunResponse:
+    task = services.get_generation_run_for_user(db, current_user.id, task_id, run_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="generation run not found")
+    reconciled = services.reconcile_generation(
+        db, task, user_id=current_user.id, provider=provider, reason=payload.reason
+    )
+    if reconciled is None:
+        raise HTTPException(status_code=404, detail="generation run not found")
+    return _run_response(db, reconciled)
 
 
 @app.post(
