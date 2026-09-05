@@ -1,13 +1,14 @@
 # Tevion 前端产品化路线（Frontend Roadmap）
 
-> 状态：草案 · 位置：仓库内 `apps/web/`（ADR-008）· 语言：中文
-> 关联后端：`apps/api`（FastAPI，真实 PG + 认证 + GPT-image2 已通）
+> 状态：持续维护 · 位置：仓库内 `apps/web/`（ADR-008）· 语言：中文
+> 关联后端：`apps/api`（FastAPI，真实 PostgreSQL + 认证 + GPT-image2 已通）
+> 项目状态更新：2026-09-05 · 方案依据 GitHub Issue #70/#72/#73/#75/#76 与 PR #71/#74 的实际状态
 
 ## 1. 现状
 
 `apps/web` 是从迁移备份恢复的零依赖静态原型（index.html / styles.css / app.js），已验证核心交互：
 Explore/Refine 模式、视觉标签、理解确认节点、候选选择、Visual Memory 展示。
-当前主流程已接入真实 API：任务创建、候选生成、反馈提交和 Visual Memory 偏好读取已在 `origin/main` 实现；Issue #24、#28、#29、#30 对应实现已合并。后续路线聚焦认证配置、失败恢复、历史版本管理和产品化打磨。
+当前主流程已接入真实 API：任务创建、候选生成、反馈提交和 Visual Memory 偏好读取已在 `origin/main` 实现；Issue #24、#28、#29、#30 对应实现已合并。Issue #70 的 failed generation 显式 retry 已通过 PR #71 合并；Issue #72 的 generation migration drift 已通过 PR #74 合并，并已验证 `alembic upgrade head`、`alembic check` 与 API 测试通过。当前前端优先任务为 Issue #73 的 Impeccable critique → audit → polish；后端 #75（unknown reconciliation 边界）处于 shaping，#76（recovery phase 字段契约）待串行推进，避免与已完成的 generation 代码区域产生并行冲突。
 
 ## 2. 产品化目标
 
@@ -37,10 +38,19 @@ Explore/Refine 模式、视觉标签、理解确认节点、候选选择、Visua
 - Visual Memory 从偏好查询端点读取真实投影（来源 + 置信度可见）；
 - 修改理解 → 影响下一轮生成，作为后续体验增强项持续完善。
 
-### M4 产品化打磨
+### M4 产品化打磨（当前优先）
+- Issue #73：对 Explore/Generate/Select/Feedback/Refine 工作台执行有限的 Impeccable `critique` → `audit` → `polish`；仅修改 `apps/web/**`，不改变 API 契约；
+- 使用浏览器或静态验证桌面与窄屏布局、加载/错误/重试状态和可访问性；
+- 官方 Impeccable CLI 若因 Apple Silicon binary 不可用，记录实际失败并采用可验证的替代审查，不声称 CLI 已运行；
 - 项目/会话/历史版本管理；
-- 视觉规范统一（暗色编辑器风格）；
 - 多主题扩展预留（Persona 概念入口）。
+
+### M5 后端可靠性与可恢复性（按依赖串行）
+- Issue #70：failed generation 显式 retry，已通过 PR #71 合并；
+- Issue #72：generation migration drift 修复，已通过 PR #74 合并；
+- Issue #75：定义 unknown generation 的 reconciliation 边界与查询契约，先 shaping；
+- Issue #76：建立 generation recovery phase 与 reconciliation 字段契约，在 #75 边界明确后推进；
+- #75/#76 不与同一 generation 代码区域并行修改。
 
 ## 4. 后端配合缺口（需要 apps/api 侧新增/确认）
 
