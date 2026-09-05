@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,16 +38,22 @@ class GenerationExecutionJobStore:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def enqueue(self, generation_run_id: str, invocation_id: str, action: str | GenerationExecutionAction) -> GenerationExecutionJob:
+    def enqueue(
+        self, generation_run_id: str, invocation_id: str, action: str | GenerationExecutionAction
+    ) -> GenerationExecutionJob:
         action = GenerationExecutionAction(action)
-        existing = self.db.scalar(select(GenerationExecutionJob).where(
-            GenerationExecutionJob.generation_run_id == generation_run_id,
-            GenerationExecutionJob.invocation_id == invocation_id,
-            GenerationExecutionJob.action == action.value,
-        ))
+        existing = self.db.scalar(
+            select(GenerationExecutionJob).where(
+                GenerationExecutionJob.generation_run_id == generation_run_id,
+                GenerationExecutionJob.invocation_id == invocation_id,
+                GenerationExecutionJob.action == action.value,
+            )
+        )
         if existing is not None:
             return existing
-        job = GenerationExecutionJob(generation_run_id=generation_run_id, invocation_id=invocation_id, action=action.value)
+        job = GenerationExecutionJob(
+            generation_run_id=generation_run_id, invocation_id=invocation_id, action=action.value
+        )
         self.db.add(job)
         try:
             self.db.commit()
@@ -55,21 +61,37 @@ class GenerationExecutionJobStore:
             return job
         except IntegrityError:
             self.db.rollback()
-            existing = self.db.scalar(select(GenerationExecutionJob).where(
-                GenerationExecutionJob.generation_run_id == generation_run_id,
-                GenerationExecutionJob.invocation_id == invocation_id,
-                GenerationExecutionJob.action == action.value,
-            ))
+            existing = self.db.scalar(
+                select(GenerationExecutionJob).where(
+                    GenerationExecutionJob.generation_run_id == generation_run_id,
+                    GenerationExecutionJob.invocation_id == invocation_id,
+                    GenerationExecutionJob.action == action.value,
+                )
+            )
             if existing is None:
                 raise RuntimeError("job disappeared after unique conflict")
             return existing
 
     def claim(self, worker_id: str, *, lease_seconds: int = 60) -> JobLease | None:
         now = datetime.now(timezone.utc)
-        job = self.db.scalar(select(GenerationExecutionJob).where(
-            GenerationExecutionJob.status.in_(["queued", "deferred"]),
-            GenerationExecutionJob.available_at <= now,
-        ).order_by(GenerationExecutionJob.created_at, GenerationExecutionJob.id).with_for_update(skip_locked=True).limit(1))
+        job = self.db.scalar(
+            select(GenerationExecutionJob)
+            .where(
+                or_(
+                    GenerationExecutionJob.status.in_(["queued", "deferred"]),
+                    (
+                        and_(
+                            GenerationExecutionJob.status == "claimed",
+                            GenerationExecutionJob.lease_expires_at < now,
+                        )
+                    ),
+                ),
+                GenerationExecutionJob.available_at <= now,
+            )
+            .order_by(GenerationExecutionJob.created_at, GenerationExecutionJob.id)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
         if job is None:
             self.db.rollback()
             return None
@@ -78,17 +100,23 @@ class GenerationExecutionJobStore:
         job.lease_expires_at = now + timedelta(seconds=lease_seconds)
         job.lease_epoch += 1
         self.db.commit()
-        return JobLease(job.id, job.generation_run_id, job.invocation_id, GenerationExecutionAction(job.action), job.lease_epoch)
+        return JobLease(
+            job.id, job.generation_run_id, job.invocation_id, GenerationExecutionAction(job.action), job.lease_epoch
+        )
 
     def _owned(self, job_id: str, worker_id: str, epoch: int) -> GenerationExecutionJob | None:
         now = datetime.now(timezone.utc)
-        return self.db.scalar(select(GenerationExecutionJob).where(
-            GenerationExecutionJob.id == job_id,
-            GenerationExecutionJob.claimed_by == worker_id,
-            GenerationExecutionJob.lease_epoch == epoch,
-            GenerationExecutionJob.status == "claimed",
-            GenerationExecutionJob.lease_expires_at > now,
-        ).with_for_update())
+        return self.db.scalar(
+            select(GenerationExecutionJob)
+            .where(
+                GenerationExecutionJob.id == job_id,
+                GenerationExecutionJob.claimed_by == worker_id,
+                GenerationExecutionJob.lease_epoch == epoch,
+                GenerationExecutionJob.status == "claimed",
+                GenerationExecutionJob.lease_expires_at > now,
+            )
+            .with_for_update()
+        )
 
     def renew(self, job_id: str, worker_id: str, epoch: int, *, lease_seconds: int = 60) -> JobLease:
         job = self._owned(job_id, worker_id, epoch)
@@ -98,7 +126,9 @@ class GenerationExecutionJobStore:
         job.lease_epoch += 1
         job.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
         self.db.commit()
-        return JobLease(job.id, job.generation_run_id, job.invocation_id, GenerationExecutionAction(job.action), job.lease_epoch)
+        return JobLease(
+            job.id, job.generation_run_id, job.invocation_id, GenerationExecutionAction(job.action), job.lease_epoch
+        )
 
     def ack(self, job_id: str, worker_id: str, epoch: int) -> bool:
         job = self._owned(job_id, worker_id, epoch)
@@ -112,7 +142,9 @@ class GenerationExecutionJobStore:
         self.db.commit()
         return True
 
-    def defer(self, job_id: str, worker_id: str, epoch: int, *, delay_seconds: int = 60, error: str | None = None) -> GenerationExecutionJob:
+    def defer(
+        self, job_id: str, worker_id: str, epoch: int, *, delay_seconds: int = 60, error: str | None = None
+    ) -> GenerationExecutionJob:
         job = self._owned(job_id, worker_id, epoch)
         if job is None:
             self.db.rollback()
@@ -130,12 +162,17 @@ class GenerationLifecycleAdapter:
     def __init__(self, store: GenerationExecutionJobStore) -> None:
         self.store = store
 
-    def on_generation_started(self, run_id: str, invocation_id: str, *, provider_request_id: str | None) -> list[GenerationExecutionJob]:
+    def on_generation_started(
+        self, run_id: str, invocation_id: str, *, provider_request_id: str | None
+    ) -> list[GenerationExecutionJob]:
         run = self.store.db.get(GenerationRun, run_id)
         if run is None:
             raise ValueError("generation run not found")
         if provider_request_id:
-            return [self.store.enqueue(run_id, invocation_id, action) for action in (GenerationExecutionAction.RESUME, GenerationExecutionAction.POLL)]
+            return [
+                self.store.enqueue(run_id, invocation_id, action)
+                for action in (GenerationExecutionAction.RESUME, GenerationExecutionAction.POLL)
+            ]
         run.reconciliation_required = True
         run.reconciliation_reason = "provider correlation unavailable; manual reconciliation required"
         self.store.db.commit()
@@ -158,12 +195,18 @@ class GenerationLifecycleAdapter:
         return 1
 
 
-def enqueue_generation_action(db: Session, run_id: str, invocation_id: str, action: str | GenerationExecutionAction) -> GenerationExecutionJob:
+def enqueue_generation_action(
+    db: Session, run_id: str, invocation_id: str, action: str | GenerationExecutionAction
+) -> GenerationExecutionJob:
     return GenerationExecutionJobStore(db).enqueue(run_id, invocation_id, action)
 
 
-def enqueue_lifecycle_jobs(db: Session, run_id: str, invocation_id: str, provider_request_id: str | None) -> list[GenerationExecutionJob]:
-    return GenerationLifecycleAdapter(GenerationExecutionJobStore(db)).on_generation_started(run_id, invocation_id, provider_request_id=provider_request_id)
+def enqueue_lifecycle_jobs(
+    db: Session, run_id: str, invocation_id: str, provider_request_id: str | None
+) -> list[GenerationExecutionJob]:
+    return GenerationLifecycleAdapter(GenerationExecutionJobStore(db)).on_generation_started(
+        run_id, invocation_id, provider_request_id=provider_request_id
+    )
 
 
 def _claim_row(db: Session, worker_id: str, lease_seconds: int = 60) -> JobLease | None:
@@ -208,6 +251,11 @@ def _unused_helpers_are_intentional() -> None:
 
 
 __all__ = [
-    "GenerationExecutionAction", "GenerationExecutionJobStore", "GenerationLifecycleAdapter",
-    "JobLease", "JobLeaseError", "enqueue_generation_action", "enqueue_lifecycle_jobs",
+    "GenerationExecutionAction",
+    "GenerationExecutionJobStore",
+    "GenerationLifecycleAdapter",
+    "JobLease",
+    "JobLeaseError",
+    "enqueue_generation_action",
+    "enqueue_lifecycle_jobs",
 ]

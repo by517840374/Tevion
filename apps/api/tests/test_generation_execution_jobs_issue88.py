@@ -12,7 +12,8 @@ from tevion_api.execution_jobs import (
     GenerationExecutionJobStore,
     GenerationLifecycleAdapter,
 )
-from tevion_api.models import GenerationRun, Project, Session as GenerationSession, User
+from tevion_api.models import GenerationRun, Project, User
+from tevion_api.models import Session as GenerationSession
 
 TEST_DB_URL = os.environ.get("TEVION_TEST_DB_URL", "postgresql+psycopg://tevion:tevion_dev@localhost:5432/tevion_test")
 
@@ -80,6 +81,20 @@ def test_run_once_is_bounded_and_uses_handler(db):
     assert processed == 1
     assert seen == [GenerationExecutionAction.POLL]
     assert store.claim("worker-b") is None
+
+
+def test_expired_claim_can_be_reclaimed_with_a_new_epoch(db):
+    store = GenerationExecutionJobStore(db)
+    run_id = db.query(GenerationRun).one().id
+    store.enqueue(run_id, "invocation-expired", "poll")
+
+    first = store.claim("worker-a", lease_seconds=0)
+    assert first is not None
+    second = store.claim("worker-b", lease_seconds=30)
+
+    assert second is not None
+    assert second.id == first.id
+    assert second.lease_epoch > first.lease_epoch
 
 
 @pytest.fixture()
