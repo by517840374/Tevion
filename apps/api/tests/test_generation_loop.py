@@ -186,6 +186,49 @@ def test_generate_persists_images_and_updates_status(db_override: None) -> None:
     engine.dispose()
 
 
+def test_idempotency_key_replays_completed_run_without_provider_call(db_override: None) -> None:
+    task_id = _create_task(sub="idempotent-replay")
+    headers = {**_auth("idempotent-replay"), "Idempotency-Key": "generate-1"}
+
+    first = client.post(f"/api/v1/tasks/{task_id}/generate", headers=headers)
+    second = client.post(f"/api/v1/tasks/{task_id}/generate", headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert fake_provider.calls == 1
+
+
+def test_idempotency_key_reuse_with_different_payload_is_conflict(db_override: None) -> None:
+    task_id = _create_task(sub="idempotent-conflict")
+    headers = {**_auth("idempotent-conflict"), "Idempotency-Key": "generate-1"}
+
+    first = client.post(f"/api/v1/tasks/{task_id}/generate", json={"quality": "low"}, headers=headers)
+    second = client.post(f"/api/v1/tasks/{task_id}/generate", json={"quality": "high"}, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["detail"] == "idempotency_key_reused"
+    assert fake_provider.calls == 1
+
+
+def test_different_idempotency_keys_create_distinct_runs(db_override: None) -> None:
+    task_id = _create_task(sub="idempotent-distinct")
+    first = client.post(
+        f"/api/v1/tasks/{task_id}/generate",
+        headers={**_auth("idempotent-distinct"), "Idempotency-Key": "generate-1"},
+    )
+    second = client.post(
+        f"/api/v1/tasks/{task_id}/generate",
+        headers={**_auth("idempotent-distinct"), "Idempotency-Key": "generate-2"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["run_id"] != first.json()["run_id"]
+    assert fake_provider.calls == 2
+
+
 def test_refine_generation_preserves_parent_image_lineage(db_override: None) -> None:
     parent_task_id = _create_task(sub="sub_refine_generate")
     engine = create_engine(TEST_DB_URL)

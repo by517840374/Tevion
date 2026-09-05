@@ -1,7 +1,10 @@
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
@@ -106,6 +109,7 @@ def create_task(
     db.flush()
     run = GenerationRun(
         session_id=session.id,
+        user_id=user.id,
         parent_run_id=parent_run_id,
         strategy_version=strategy_version,
         status="created",
@@ -116,6 +120,82 @@ def create_task(
     db.refresh(session)
     db.refresh(run)
     return CreatedTask(session=session, run=run)
+
+
+def generation_parameters(task: CreatedTask, overrides: dict | None = None) -> dict:
+    params = dict(task.run.parameters_json or {})
+    params.update({key: value for key, value in (overrides or {}).items() if value is not None})
+    return params
+
+
+def claim_generation(
+    db: OrmSession,
+    task: CreatedTask,
+    *,
+    user_id: str,
+    idempotency_key: str | None,
+    parameters: dict,
+) -> CreatedTask:
+    if idempotency_key is None:
+        run = GenerationRun(
+            session_id=task.session.id,
+            user_id=user_id,
+            parent_run_id=task.run.parent_run_id,
+            strategy_version=task.run.strategy_version,
+            status="created",
+            parameters_json=parameters,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return CreatedTask(task.session, run)
+    fingerprint = hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    existing = db.scalar(
+        select(GenerationRun).where(
+            GenerationRun.user_id == user_id,
+            GenerationRun.session_id == task.session.id,
+            GenerationRun.idempotency_key == idempotency_key,
+        )
+    )
+    if existing is not None:
+        if existing.request_fingerprint != fingerprint:
+            raise ValueError("idempotency_key_reused")
+        return CreatedTask(task.session, existing)
+    if task.run.idempotency_key is None and task.run.status == "created":
+        task.run.idempotency_key = idempotency_key
+        task.run.request_fingerprint = fingerprint
+        task.run.parameters_json = parameters
+        db.commit()
+        return task
+    run = GenerationRun(
+        session_id=task.session.id,
+        user_id=user_id,
+        parent_run_id=task.run.parent_run_id,
+        strategy_version=task.run.strategy_version,
+        status="created",
+        parameters_json=parameters,
+        idempotency_key=idempotency_key,
+        request_fingerprint=fingerprint,
+    )
+    db.add(run)
+    try:
+        db.commit()
+        db.refresh(run)
+        return CreatedTask(task.session, run)
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(
+            select(GenerationRun).where(
+                GenerationRun.user_id == user_id,
+                GenerationRun.session_id == task.session.id,
+                GenerationRun.idempotency_key == idempotency_key,
+            )
+        )
+        if existing is None:
+            raise
+        if existing.request_fingerprint != fingerprint:
+            raise ValueError("idempotency_key_reused")
+        return CreatedTask(task.session, existing)
 
 
 def get_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask | None:

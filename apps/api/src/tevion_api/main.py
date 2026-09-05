@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
@@ -16,6 +16,7 @@ from .schemas import (
     DevTokenResponse,
     FeedbackRequest,
     FeedbackResponse,
+    GenerateRequest,
     GenerateResponse,
     HealthResponse,
     ImageSummary,
@@ -195,6 +196,8 @@ def _image_summaries(db: OrmSession, run_id: str) -> list[ImageSummary]:
 @app.post("/api/v1/tasks/{task_id}/generate", response_model=GenerateResponse)
 def generate_task(
     task_id: str,
+    payload: GenerateRequest | None = Body(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     current_user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
     provider: MaizitechImageProvider = Depends(get_image_provider),
@@ -202,13 +205,40 @@ def generate_task(
     task = services.get_task_for_user(db, current_user.id, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    images = services.execute_generation(db, task, provider)
+    parameters = services.generation_parameters(task, payload.model_dump() if payload else None)
+    try:
+        claimed = services.claim_generation(
+            db,
+            task,
+            user_id=current_user.id,
+            idempotency_key=idempotency_key,
+            parameters=parameters,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="idempotency_key_reused") from exc
+    if claimed.run.status == "completed":
+        images = list(
+            db.scalars(
+                select(ImageVersion).where(ImageVersion.run_id == claimed.run.id).order_by(ImageVersion.created_at)
+            )
+        )
+    elif claimed.run.status == "generating":
+        return GenerateResponse(
+            task_id=claimed.session.id,
+            status=TaskStatus.GENERATING,
+            run_id=claimed.run.id,
+            parent_run_id=claimed.run.parent_run_id,
+            images=[],
+        )
+    else:
+        claimed.run.parameters_json = parameters
+        images = services.execute_generation(db, claimed, provider)
     db.commit()
     return GenerateResponse(
-        task_id=task.session.id,
-        status=TaskStatus(task.session.status),
-        run_id=task.run.id,
-        parent_run_id=task.run.parent_run_id,
+        task_id=claimed.session.id,
+        status=TaskStatus(claimed.session.status),
+        run_id=claimed.run.id,
+        parent_run_id=claimed.run.parent_run_id,
         images=[
             ImageSummary(
                 id=image.id,
