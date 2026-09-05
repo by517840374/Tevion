@@ -631,3 +631,136 @@ def execute_generation(
     for image in images:
         db.refresh(image)
     return images
+
+
+def reconcile_generation(
+    db: OrmSession,
+    task: CreatedTask,
+    *,
+    user_id: str,
+    provider: ImageGenerationProvider,
+    reason: str,
+) -> CreatedTask | None:
+    """Reconcile one persisted provider request without ever submitting again."""
+    if task.run.user_id != user_id:
+        return None
+
+    run, session = task.run, task.session
+    if run.status in {"completed", "failed", "cancelled"}:
+        return task
+
+    provider_request_id = run.provider_request_id
+    safe_reason = " ".join(reason.split())[:180] or "manual reconciliation"
+    if not provider_request_id:
+        run.status = "unknown"
+        run.reconciliation_required = True
+        run.reconciliation_reason = f"{safe_reason}; evidence=missing_provider_request_id"
+        db.commit()
+        return task
+
+    try:
+        resume = getattr(provider, "resume", None)
+        if resume is None:
+            raise RuntimeError("provider resume is unavailable")
+        operation = resume(provider_request_id)
+    except Exception:  # noqa: BLE001 - lookup uncertainty remains recoverable
+        run.status = "unknown"
+        run.reconciliation_required = True
+        run.error_code = "provider_lookup_unknown"
+        run.error_message = "provider evidence could not be confirmed; recovery required"
+        run.reconciliation_reason = f"{safe_reason}; evidence=provider_lookup_unknown"
+        db.commit()
+        return task
+
+    if operation.provider_request_id != provider_request_id:
+        run.status = "needs_user_review"
+        run.reconciliation_required = True
+        run.error_code = "provider_evidence_conflict"
+        run.error_message = "provider evidence does not match the persisted request"
+        run.reconciliation_reason = f"{safe_reason}; evidence=request_id_conflict"
+        db.commit()
+        return task
+
+    if operation.status is ProviderOperationStatus.FAILED:
+        run.status = "failed"
+        run.reconciliation_required = False
+        run.error_code = operation.error_code or "provider_failed"
+        run.error_message = (operation.error_message or "provider task failed")[:2000]
+        run.reconciliation_reason = f"{safe_reason}; evidence=provider_failed"
+        db.commit()
+        return task
+
+    result = operation.result
+    if operation.status is not ProviderOperationStatus.COMPLETED or result is None:
+        run.status = "unknown"
+        run.reconciliation_required = True
+        run.error_code = operation.error_code or "provider_evidence_unknown"
+        run.error_message = "provider evidence is not sufficient to finalize; recovery required"
+        run.reconciliation_reason = f"{safe_reason}; evidence=unknown"
+        db.commit()
+        return task
+
+    if result.provider_request_id != provider_request_id or not result.asset_urls or result.cost is None:
+        run.status = "unknown"
+        run.reconciliation_required = True
+        run.error_code = "provider_evidence_invalid"
+        run.error_message = "provider completed evidence is incomplete or conflicting"
+        run.reconciliation_reason = f"{safe_reason}; evidence=completed_invalid"
+        db.commit()
+        return task
+
+    invalid_asset = next(
+        (asset for asset in result.asset_urls if not isinstance(asset, str) or not asset.strip()), None
+    )
+    if invalid_asset is not None:
+        run.status = "unknown"
+        run.reconciliation_required = True
+        run.error_code = "provider_assets_invalid"
+        run.error_message = "provider completed evidence contains invalid assets"
+        run.reconciliation_reason = f"{safe_reason}; evidence=completed_invalid"
+        db.commit()
+        return task
+
+    run.status = "completed"
+    run.reconciliation_required = False
+    run.provider_name = result.provider_name
+    run.model_name = result.model_name
+    run.latency_ms = result.latency_ms
+    if run.estimated_cost is None:
+        run.estimated_cost = result.cost
+    run.completed_at = run.completed_at or datetime.now(timezone.utc)
+    run.finalized_at = run.finalized_at or datetime.now(timezone.utc)
+    run.reconciliation_reason = f"{safe_reason}; evidence=completed"
+    session.status = "awaiting_selection"
+    if not db.scalar(select(ImageVersion).where(ImageVersion.run_id == run.id)):
+        parameters = run.parameters_json or {}
+        request = GenerationRequest(
+            prompt=session.raw_request or "",
+            output_count=int(parameters.get("output_count") or 1),
+            aspect_ratio=str(parameters.get("aspect_ratio") or "1:1"),
+            quality=str(parameters.get("quality") or "low"),
+        )
+        metadata = _safe_result_metadata(result)
+        metadata.update(
+            {
+                "provider": result.provider_name,
+                "model": result.model_name,
+                "provider_request_id": provider_request_id,
+                "metadata_source": result.metadata_source,
+            }
+        )
+        width, height = _parse_pixel_size(metadata.get("size"))
+        for asset_uri in result.asset_urls:
+            db.add(
+                ImageVersion(
+                    run_id=run.id,
+                    parent_image_id=parameters.get("parent_image_id"),
+                    asset_uri=asset_uri,
+                    width=width,
+                    height=height,
+                    prompt=request.prompt,
+                    metadata_json=metadata,
+                )
+            )
+    db.commit()
+    return task

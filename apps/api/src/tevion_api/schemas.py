@@ -151,6 +151,10 @@ class GenerateResponse(BaseModel):
     images: list[ImageSummary] = Field(default_factory=list)
 
 
+class ReconciliationRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class TaskRuntimeResponse(BaseModel):
     task_id: str
     state: TaskStatus
