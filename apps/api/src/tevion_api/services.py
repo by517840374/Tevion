@@ -1,9 +1,10 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
@@ -57,6 +58,89 @@ class TaskRuntimeProjection:
 
 class ProjectNotFoundError(ValueError):
     """Raised when a requested project is not owned by the current user."""
+
+
+class GenerationExecutionAdapter(Protocol):
+    def execute(
+        self, db: OrmSession, task: CreatedTask, provider: ImageGenerationProvider
+    ) -> list[ImageVersion] | None: ...
+
+
+def claim_generation_lease(db: OrmSession, run_id: str, *, owner: str, lease_seconds: int = 60) -> bool:
+    now = datetime.now(timezone.utc)
+    result = db.execute(
+        update(GenerationRun)
+        .where(
+            GenerationRun.id == run_id,
+            or_(GenerationRun.lease_owner.is_(None), GenerationRun.lease_expires_at < now),
+        )
+        .values(lease_owner=owner, lease_expires_at=now + timedelta(seconds=lease_seconds))
+    )
+    db.commit()
+    return result.rowcount == 1
+
+
+def release_generation_lease(db: OrmSession, run_id: str, *, owner: str) -> bool:
+    result = db.execute(
+        update(GenerationRun)
+        .where(GenerationRun.id == run_id, GenerationRun.lease_owner == owner)
+        .values(lease_owner=None, lease_expires_at=None)
+    )
+    db.commit()
+    return result.rowcount == 1
+
+
+def submit_or_resume_generation(
+    db: OrmSession,
+    task: CreatedTask,
+    provider: ImageGenerationProvider,
+    *,
+    owner: str,
+    lease_seconds: int = 60,
+) -> list[ImageVersion] | None:
+    """Execute or recover a run under a bounded DB lease."""
+    if not claim_generation_lease(db, task.run.id, owner=owner, lease_seconds=lease_seconds):
+        return None
+    try:
+        if task.run.status == "unknown" and not task.run.provider_request_id:
+            task.run.reconciliation_required = True
+            task.run.reconciliation_reason = "restart recovery requires provider correlation"
+            db.commit()
+            return []
+        return execute_generation(db, task, provider)
+    finally:
+        release_generation_lease(db, task.run.id, owner=owner)
+
+
+def handle_generation_disconnect(db: OrmSession, task: CreatedTask, *, owner: str) -> CreatedTask:
+    """Release execution ownership without converting disconnect into failure."""
+    release_generation_lease(db, task.run.id, owner=owner)
+    return task
+
+
+def recovery_sweep(
+    db: OrmSession,
+    provider: ImageGenerationProvider,
+    *,
+    owner: str,
+    lease_seconds: int = 60,
+) -> list[str]:
+    """Recover only in-flight runs with persisted provider request IDs."""
+    runs = list(
+        db.scalars(
+            select(GenerationRun).where(
+                GenerationRun.status.in_(["generating", "unknown"]),
+                GenerationRun.provider_request_id.is_not(None),
+            )
+        )
+    )
+    recovered: list[str] = []
+    for run in runs:
+        task = get_task_for_user(db, run.user_id or "", run.session_id)
+        if task is not None:
+            submit_or_resume_generation(db, task, provider, owner=owner, lease_seconds=lease_seconds)
+            recovered.append(run.id)
+    return recovered
 
 
 def _resolve_project(db: OrmSession, user: User, project_id: str | None) -> Project:
