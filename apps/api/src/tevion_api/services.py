@@ -200,8 +200,34 @@ def get_task_for_user(db: OrmSession, user_id: str, task_id: str) -> CreatedTask
             Session.id == task_id,
             Project.user_id == user_id,
         )
-        .order_by(GenerationRun.started_at)
+        .order_by(GenerationRun.started_at.desc().nullslast(), GenerationRun.id.desc())
         .limit(1)
+    ).first()
+    if row is None:
+        return None
+    session, run = row
+    return CreatedTask(session=session, run=run)
+
+
+def list_generation_runs_for_user(db: OrmSession, user_id: str, task_id: str) -> list[CreatedTask] | None:
+    rows = db.execute(
+        select(Session, GenerationRun)
+        .join(Project, Session.project_id == Project.id)
+        .join(GenerationRun, GenerationRun.session_id == Session.id)
+        .where(Session.id == task_id, Project.user_id == user_id)
+        .order_by(GenerationRun.started_at.desc().nullslast(), GenerationRun.id.desc())
+    ).all()
+    if not rows:
+        return None
+    return [CreatedTask(session=session, run=run) for session, run in rows]
+
+
+def get_generation_run_for_user(db: OrmSession, user_id: str, task_id: str, run_id: str) -> CreatedTask | None:
+    row = db.execute(
+        select(Session, GenerationRun)
+        .join(Project, Session.project_id == Project.id)
+        .join(GenerationRun, GenerationRun.session_id == Session.id)
+        .where(Session.id == task_id, Project.user_id == user_id, GenerationRun.id == run_id)
     ).first()
     if row is None:
         return None
