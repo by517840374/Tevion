@@ -46,7 +46,16 @@ COMPLETED → （终态）
 
 ## 3. 持久化 task/generation 状态
 
-创建 `POST /api/v1/tasks` 时，服务端创建一个 `Session` 和一个 `GenerationRun`，二者初始 `status` 都是 `created`。`GenerationRun` 还保存 `strategy_version`、请求参数和可选的 `parent_run_id`。
+状态源与 runtime projection 契约如下：
+
+- `Session.status` 是跨请求持久化的 task-level canonical source。
+- `GenerationRun.status` 是一次 generation attempt 的 attempt-level canonical source；runtime 读取该 task 的最新 run。
+- `TaskRuntime` 仅是有界 transition validator/replay helper，`TaskRuntime.events` 只存在于当前进程，不是数据库状态源。
+- runtime GET 只读已提交的 Session/GenerationRun projection：不创建 runtime、run 或 event，不调用 Provider，不触发 retry。
+- 最新 run 为 `generating` 或 `unknown` 时，API `state` 投影为 `recovery_required`；为 `failed` 时投影为 `needs_user_review`。这两个值是 projection-only API 状态，不写入 Session/GenerationRun。
+- 进程重启后只能读取最后一次已提交的数据库状态；不声称恢复外部 Provider 的 in-flight 工作。恢复或 retry 必须通过显式、有界命令完成。
+
+创建 `POST /api/v1/tasks` 时，服务端创建一个 `Session` 和一个 `GenerationRun`，二者初始 `status` 都是 `created`。`GenerationRun` 还保存 `strategy_version`、请求参数和可选的 `parent_run_id`。服务层对持久化状态写入使用 bounded transition guard；非法转换被拒绝且不会改变对象状态。
 
 调用 `POST /api/v1/tasks/{task_id}/generate` 后，`services.execute_generation()` 的当前迁移是：
 
