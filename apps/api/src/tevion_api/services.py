@@ -56,6 +56,43 @@ class TaskRuntimeProjection:
         return self.task_id
 
 
+class InvalidStatusTransition(ValueError):
+    """Raised when a persisted status leaves its bounded transition graph."""
+
+
+_SESSION_STATUS_TRANSITIONS = {
+    "created": frozenset({"generating", "awaiting_selection"}),
+    "generating": frozenset({"awaiting_selection"}),
+    "awaiting_selection": frozenset({"awaiting_selection", "completed"}),
+    "completed": frozenset(),
+}
+_GENERATION_STATUS_TRANSITIONS = {
+    "created": frozenset({"generating"}),
+    "generating": frozenset({"completed", "failed", "unknown", "needs_user_review"}),
+    "unknown": frozenset({"completed", "failed", "needs_user_review", "unknown"}),
+    "failed": frozenset(),
+    "completed": frozenset(),
+    "needs_user_review": frozenset(),
+}
+
+
+def _transition_status(target: object, status: str, transitions: dict[str, frozenset[str]]) -> None:
+    current = getattr(target, "status")
+    if current not in transitions or status not in transitions or status not in transitions[current]:
+        raise InvalidStatusTransition(f"cannot transition {current} -> {status}")
+    setattr(target, "status", status)
+
+
+def transition_session_status(session: Session, status: str) -> None:
+    """Apply a bounded task-level Session status transition."""
+    _transition_status(session, status, _SESSION_STATUS_TRANSITIONS)
+
+
+def transition_generation_status(run: GenerationRun, status: str) -> None:
+    """Apply a bounded attempt-level GenerationRun status transition."""
+    _transition_status(run, status, _GENERATION_STATUS_TRANSITIONS)
+
+
 class ProjectNotFoundError(ValueError):
     """Raised when a requested project is not owned by the current user."""
 
@@ -631,7 +668,7 @@ def execute_generation(
     now = datetime.now(timezone.utc)
 
     if not resume_existing_request:
-        run.status = "generating"
+        transition_generation_status(run, "generating")
         run.started_at = now
     db.flush()
 
@@ -652,7 +689,7 @@ def execute_generation(
             if operation.status is ProviderOperationStatus.PENDING:
                 operation = provider.poll(operation.provider_request_id)  # type: ignore[attr-defined]
             if operation.status is ProviderOperationStatus.UNKNOWN:
-                run.status = "unknown"
+                transition_generation_status(run, "unknown")
                 run.error_code = operation.error_code or "provider_unknown"
                 run.error_message = "provider request outcome is unknown; recovery required"
                 db.commit()
@@ -667,17 +704,17 @@ def execute_generation(
     except ProviderResponseError as exc:
         classification = classify_provider_error(exc)
         if classification.code == "timeout":
-            run.status = "unknown"
+            transition_generation_status(run, "unknown")
             run.error_code = "provider_timeout_unknown"
             run.error_message = "provider request outcome is unknown; recovery required"
         else:
-            run.status = "failed"
+            transition_generation_status(run, "failed")
             run.error_code = classification.code
             run.error_message = str(exc)[:2000] if classification.code == "provider_error" else classification.message
         db.commit()
         raise
     except Exception as exc:  # noqa: BLE001 - record any provider failure
-        run.status = "failed"
+        transition_generation_status(run, "failed")
         run.error_code = "internal"
         run.error_message = str(exc)[:2000]
         db.commit()
@@ -703,14 +740,14 @@ def execute_generation(
         db.add(image)
         images.append(image)
 
-    run.status = "completed"
+    transition_generation_status(run, "completed")
     run.provider_name = result.provider_name
     run.provider_request_id = result.provider_request_id or None
     run.model_name = result.model_name
     run.latency_ms = result.latency_ms
     run.estimated_cost = result.cost
     run.completed_at = datetime.now(timezone.utc)
-    session.status = "awaiting_selection"
+    transition_session_status(session, "awaiting_selection")
     db.commit()
     for image in images:
         db.refresh(image)
@@ -736,7 +773,7 @@ def reconcile_generation(
     provider_request_id = run.provider_request_id
     safe_reason = " ".join(reason.split())[:180] or "manual reconciliation"
     if not provider_request_id:
-        run.status = "unknown"
+        transition_generation_status(run, "unknown")
         run.reconciliation_required = True
         run.reconciliation_reason = f"{safe_reason}; evidence=missing_provider_request_id"
         db.commit()
@@ -748,7 +785,7 @@ def reconcile_generation(
             raise RuntimeError("provider resume is unavailable")
         operation = resume(provider_request_id)
     except Exception:  # noqa: BLE001 - lookup uncertainty remains recoverable
-        run.status = "unknown"
+        transition_generation_status(run, "unknown")
         run.reconciliation_required = True
         run.error_code = "provider_lookup_unknown"
         run.error_message = "provider evidence could not be confirmed; recovery required"
@@ -757,7 +794,7 @@ def reconcile_generation(
         return task
 
     if operation.provider_request_id != provider_request_id:
-        run.status = "needs_user_review"
+        transition_generation_status(run, "needs_user_review")
         run.reconciliation_required = True
         run.error_code = "provider_evidence_conflict"
         run.error_message = "provider evidence does not match the persisted request"
@@ -766,7 +803,7 @@ def reconcile_generation(
         return task
 
     if operation.status is ProviderOperationStatus.FAILED:
-        run.status = "failed"
+        transition_generation_status(run, "failed")
         run.reconciliation_required = False
         run.error_code = operation.error_code or "provider_failed"
         run.error_message = (operation.error_message or "provider task failed")[:2000]
@@ -776,7 +813,7 @@ def reconcile_generation(
 
     result = operation.result
     if operation.status is not ProviderOperationStatus.COMPLETED or result is None:
-        run.status = "unknown"
+        transition_generation_status(run, "unknown")
         run.reconciliation_required = True
         run.error_code = operation.error_code or "provider_evidence_unknown"
         run.error_message = "provider evidence is not sufficient to finalize; recovery required"
@@ -785,7 +822,7 @@ def reconcile_generation(
         return task
 
     if result.provider_request_id != provider_request_id or not result.asset_urls or result.cost is None:
-        run.status = "unknown"
+        transition_generation_status(run, "unknown")
         run.reconciliation_required = True
         run.error_code = "provider_evidence_invalid"
         run.error_message = "provider completed evidence is incomplete or conflicting"
@@ -797,7 +834,7 @@ def reconcile_generation(
         (asset for asset in result.asset_urls if not isinstance(asset, str) or not asset.strip()), None
     )
     if invalid_asset is not None:
-        run.status = "unknown"
+        transition_generation_status(run, "unknown")
         run.reconciliation_required = True
         run.error_code = "provider_assets_invalid"
         run.error_message = "provider completed evidence contains invalid assets"
@@ -805,7 +842,7 @@ def reconcile_generation(
         db.commit()
         return task
 
-    run.status = "completed"
+    transition_generation_status(run, "completed")
     run.reconciliation_required = False
     run.provider_name = result.provider_name
     run.model_name = result.model_name
@@ -815,7 +852,7 @@ def reconcile_generation(
     run.completed_at = run.completed_at or datetime.now(timezone.utc)
     run.finalized_at = run.finalized_at or datetime.now(timezone.utc)
     run.reconciliation_reason = f"{safe_reason}; evidence=completed"
-    session.status = "awaiting_selection"
+    transition_session_status(session, "awaiting_selection")
     if not db.scalar(select(ImageVersion).where(ImageVersion.run_id == run.id)):
         parameters = run.parameters_json or {}
         request = GenerationRequest(
