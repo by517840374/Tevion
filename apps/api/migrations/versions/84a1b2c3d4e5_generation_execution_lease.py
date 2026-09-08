@@ -1,7 +1,7 @@
 """add bounded generation execution lease fields"""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "84a1b2c3d4e5"
 down_revision = "6c7d8e9f0a1b"
