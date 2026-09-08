@@ -354,9 +354,36 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+function renderRefineContext() {
+  const context = $('refineContext');
+  const status = $('refineParentStatus');
+  if (!context || !status) return;
+  const refine = document.querySelector('.mode.active')?.dataset.mode === 'refine';
+  context.hidden = !refine;
+  if (!refine) return;
+  status.innerHTML = chosenId
+    ? '<strong>selected parent</strong>：' + escapeHtml(chosenId) + '（下一次生成将携带 parent_version_id）'
+    : '尚未选择候选图。请先回到 Explore 结果区选择一张候选。';
+}
+
+function renderSelectedParent() {
+  document.getElementById('selectedParent')?.remove();
+  if (!chosenId) return;
+  const top = document.querySelector('.result-top');
+  if (!top || !top.parentNode) return;
+  const box = document.createElement('div');
+  box.id = 'selectedParent';
+  box.className = 'selected-parent';
+  box.innerHTML = '<strong>selected parent</strong>：' + escapeHtml(chosenId) +
+    '<span class="parent-detail">切换到 Refine 后将保留这张候选的主体与当前方向；本轮修改项来自左侧需求和视觉标签。</span>';
+  top.insertAdjacentElement('afterend', box);
+}
+
 /* ---------- 结果区渲染 ---------- */
 function resetResults(msg) {
   stopElapsed();
+  chosenId = null;
+  renderRefineContext();
   const r = $('results');
   r.className = 'empty-results panel';
   r.setAttribute('aria-busy', 'false');
@@ -406,6 +433,7 @@ function stopElapsed() {
 function renderResults(images) {
   stopElapsed();
   chosenId = null;
+  renderRefineContext();
   const r = $('results');
   r.className = 'results panel';
   r.setAttribute('aria-busy', 'false');
@@ -549,6 +577,8 @@ async function handleCandidateAction(action, id) {
     } else {
       chosenId = id;
       setCardState(id, '已选择 ✓');
+      renderSelectedParent();
+      renderRefineContext();
       $('selectionNote').textContent = '已选择 ' + id + ' · 反馈已提交';
       toast('已提交选择反馈：' + id, 'success', 3000);
     }
@@ -591,6 +621,8 @@ function selectCandidate(id) {
     }
   });
   setCardState(id, '已选择 ✓');
+  renderSelectedParent();
+  renderRefineContext();
   $('selectionNote').textContent = '已选择 ' + id + ' · 正在提交到反馈 API…';
   renderFeedbackStatus('正在提交“选择候选”反馈…', false);
   handleCandidateAction('select', id);
@@ -727,6 +759,7 @@ document.querySelectorAll('.mode').forEach(mode =>
   mode.addEventListener('click', () => {
     document.querySelectorAll('.mode').forEach(m => m.classList.remove('active'));
     mode.classList.add('active');
+    renderRefineContext();
   }));
 $('generate').addEventListener('click', () => handleGenerate());
 $('loginBtn').addEventListener('click', handleLogin);
@@ -752,3 +785,4 @@ handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, '
   if (getToken()) loadProjectHistory();
 });
 refreshLoginUI();
+renderRefineContext();

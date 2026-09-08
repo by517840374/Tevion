@@ -10,8 +10,8 @@
   <main class="workspace" style="display:block;max-width:720px;padding:40px">
     <section class="panel" style="padding:32px">
       <div class="eyebrow">INTERACTION VERIFICATION</div>
-      <h1>验证历史面板契约</h1>
-      <p class="muted">这个页面用于检查工作台入口、历史面板容器和真实 API 调用契约。</p>
+      <h1>验证 Explore → Select → Refine 契约</h1>
+      <p class="muted">这个页面用于检查前端状态提示、selected parent、Refine 范围和真实 API 调用契约。</p>
       <div id="checks" class="memory-block"></div>
       <button class="primary-button" id="run-checks">运行验证</button>
     </section>
@@ -70,6 +70,14 @@
           has(/aria-live/) && has(/aria-busy/) &&
           has(/aria-label=.*选择候选/) && has(/aria-label=.*拒绝候选/));
         record('历史面板失败状态提供显式重试入口', has(/historyRetry/) && has(/loadProjectHistory\(\)/));
+        record('选择候选后明确渲染 selected parent',
+          has(/function renderSelectedParent\(\)/) && has(/id = 'selectedParent'/) && has(/selected parent/));
+        record('切换 Refine 显示 parent 与保留项/修改项',
+          has(/function renderRefineContext\(\)/) && has(/refineContext/) && has(/refineParentStatus/) &&
+          has(/保留/) && has(/修改/) && has(/parent_version_id/));
+        record('Refine 创建任务保留 parent_version_id API body 契约',
+          has(/mode: currentTask\.mode/) && has(/parent_version_id: currentTask\.parent_version_id/) &&
+          has(/api\(['"]\/tasks['"]/));
       } catch (error) {
         record('可读取 app.js focused 契约', false);
       }

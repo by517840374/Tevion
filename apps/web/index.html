@@ -35,6 +35,11 @@
         <button class="mode active" data-mode="explore">探索</button>
         <button class="mode" data-mode="refine">精修</button>
       </div>
+      <div class="refine-context" id="refineContext" hidden aria-live="polite">
+        <div class="refine-context-title">精修基于当前 selected parent</div>
+        <p id="refineParentStatus">尚未选择候选图。</p>
+        <div class="refine-scope"><span><strong>保留</strong> 已选择候选的主体、光影与整体感觉</span><span><strong>修改</strong> 你在左侧输入的内容与视觉方向</span></div>
+      </div>
       <div class="form-grid">
         <div><label class="field-label">比例</label><select id="ratio"><option value="4:5">4:5 人像</option><option value="1:1">1:1 方形</option><option value="9:16">9:16 竖屏</option></select></div>
         <div><label class="field-label">候选数量</label><select id="count"><option value="4">4 张</option><option value="2">2 张</option></select></div>
