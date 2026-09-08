@@ -1,7 +1,7 @@
 """add nullable recovery phase and reconciliation fields to generation runs"""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "6c7d8e9f0a1b"
 down_revision = "5ab7c9d1e2f3"

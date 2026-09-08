@@ -1,7 +1,7 @@
 """persist provider request identifiers for generation recovery"""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "4f1a2b3c4d5e"
 down_revision = "9d9f5e6a1b2c"

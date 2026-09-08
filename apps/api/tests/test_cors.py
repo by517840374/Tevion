@@ -23,6 +23,7 @@ def test_local_defaults_allow_common_frontend_origins(monkeypatch) -> None:
 
     assert settings.environment == "local"
     assert "http://localhost:3000" in settings.allowed_origins
+    assert "http://127.0.0.1:3000" in settings.allowed_origins
     assert "http://127.0.0.1:5173" in settings.allowed_origins
     assert settings.allow_credentials is False
 

@@ -4,8 +4,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from tevion_api.db import Base, DEFAULT_DB_URL
 from tevion_api import models  # noqa: F401  (register tables on Base.metadata)
+from tevion_api.db import DEFAULT_DB_URL, Base
 
 config = context.config
 if config.config_file_name is not None:

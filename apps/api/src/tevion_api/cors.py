@@ -25,6 +25,7 @@ _LOCAL_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8000",
+    "http://127.0.0.1:8081",
 ]
 _DEFAULT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 _DEFAULT_HEADERS = ["Authorization", "Content-Type"]
