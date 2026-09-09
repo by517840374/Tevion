@@ -65,6 +65,10 @@ def test_submit_poll_and_normalize_completed_task() -> None:
     assert result.model_name == "gpt-image-2"
     assert result.metadata_source == "provider_response"
     assert result.asset_urls == ["https://cdn.example.test/result-1.png"]
+    assert result.requested_count == 2
+    assert result.actual_count == 1
+    assert result.completeness == "partial"
+    assert result.shortfall == 1
     assert result.cost == 0.0081
     assert result.metadata == {
         "provider": "maizitech",
