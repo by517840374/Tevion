@@ -542,7 +542,13 @@ def list_feedback_events_for_task(db: OrmSession, *, user_id: str, task_id: str)
 
 
 def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
-    """Aggregate currently persisted product facts for one user."""
+    """Aggregate currently persisted product facts for one user.
+
+    ``sample_count`` includes every run. Completion is terminal-only
+    (completed / failed / unknown); ``needs_user_review`` is tracked
+    separately from active in-progress runs. Latency is completed-only and
+    uses inclusive percentile interpolation.
+    """
     owned_sessions = (
         select(Session.id).join(Project, Session.project_id == Project.id).where(Project.user_id == user_id)
     )
@@ -578,8 +584,15 @@ def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
     explore_ids = set(db.scalars(select(Session.id).where(Session.id.in_(session_ids), Session.mode == "explore")))
     explore_run_ids = {run.id for run in runs if run.session_id in explore_ids}
     refine_from_explore = {run.session_id for run in runs if run.parent_run_id in explore_run_ids}
-    latency_values = [run.latency_ms for run in runs if run.latency_ms is not None]
+    terminal_runs = [run for run in runs if run.status in {"completed", "failed", "unknown"}]
+    completed_runs = [run for run in runs if run.status == "completed"]
+    latency_values = [run.latency_ms for run in completed_runs if run.latency_ms is not None]
     cost_values = [run.estimated_cost for run in runs if run.estimated_cost is not None]
+    completed_count = sum(run.status == "completed" for run in runs)
+    failed_count = sum(run.status == "failed" for run in runs)
+    unknown_count = sum(run.status == "unknown" for run in runs)
+    needs_user_review_count = sum(run.status == "needs_user_review" for run in runs)
+    active_count = len(runs) - len(terminal_runs) - needs_user_review_count
 
     def percentile(values: list[int], percentile_value: float) -> float:
         if not values:
@@ -593,11 +606,13 @@ def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
         return numerator / denominator if denominator else 0.0
 
     return {
-        "generation_completion_rate": ratio(sum(run.status == "completed" for run in runs), len(runs)),
+        "generation_completion_rate": ratio(completed_count, len(terminal_runs)),
         "sample_count": len(runs),
-        "completed_count": sum(run.status == "completed" for run in runs),
-        "failed_count": sum(run.status == "failed" for run in runs),
-        "unknown_count": sum(run.status == "unknown" for run in runs),
+        "completed_count": completed_count,
+        "failed_count": failed_count,
+        "unknown_count": unknown_count,
+        "active_count": active_count,
+        "needs_user_review_count": needs_user_review_count,
         "candidate_selection_rate": ratio(len(selected_session_ids), len(generated_session_ids)),
         "feedback_completion_rate": ratio(
             len({event.session_id for event in feedback_events}), len(generated_session_ids)

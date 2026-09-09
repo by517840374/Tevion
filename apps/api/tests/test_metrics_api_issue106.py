@@ -79,6 +79,8 @@ def test_metrics_empty_data_returns_zeroed_user_scoped_snapshot(db_override: Non
         "completed_count": 0,
         "failed_count": 0,
         "unknown_count": 0,
+        "active_count": 0,
+        "needs_user_review_count": 0,
         "unavailable_metrics": ["throughput", "concurrency", "retry_count", "time_to_accept"],
     }
 
@@ -135,18 +137,20 @@ def test_metrics_are_partial_and_isolated_to_current_user(db_override: None) -> 
         "explore_to_refine_rate": 1.0,
         "average_generation_rounds": 1.0,
         "latency_ms": {
-            "count": 2,
-            "average": 75.0,
-            "total": 150.0,
-            "p50": 75.0,
-            "p95": 97.5,
-            "p99": 99.5,
+            "count": 1,
+            "average": 100.0,
+            "total": 100,
+            "p50": 100.0,
+            "p95": 100.0,
+            "p99": 100.0,
         },
         "cost": {"count": 1, "average": 0.2, "total": 0.2},
         "sample_count": 2,
         "completed_count": 1,
         "failed_count": 1,
         "unknown_count": 0,
+        "active_count": 0,
+        "needs_user_review_count": 0,
         "unavailable_metrics": ["throughput", "concurrency", "retry_count", "time_to_accept"],
     }
 
@@ -156,7 +160,42 @@ def test_metrics_are_partial_and_isolated_to_current_user(db_override: None) -> 
     assert other.json()["latency_ms"]["count"] == 0
 
 
-def test_metrics_percentiles_ignore_missing_latency_and_count_unknown(db_override: None) -> None:
+def test_metrics_use_terminal_denominator_and_expose_active_counts(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as db:
+        user = m.User(auth_provider="oidc", provider_subject="issue112-active")
+        project = m.Project(user=user, name="Metrics")
+        session = m.Session(project=project, mode="explore")
+        db.add_all(
+            [
+                user,
+                project,
+                session,
+                m.GenerationRun(session=session, user_id=user.id, status="completed", latency_ms=10),
+                m.GenerationRun(session=session, user_id=user.id, status="failed", latency_ms=20),
+                m.GenerationRun(session=session, user_id=user.id, status="unknown", latency_ms=30),
+                m.GenerationRun(session=session, user_id=user.id, status="generating"),
+                m.GenerationRun(session=session, user_id=user.id, status="retrying"),
+                m.GenerationRun(session=session, user_id=user.id, status="needs_user_review"),
+            ]
+        )
+        db.commit()
+    engine.dispose()
+
+    response = client.get("/api/v1/metrics", headers=_auth("issue112-active"))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample_count"] == 6
+    assert payload["completed_count"] == 1
+    assert payload["failed_count"] == 1
+    assert payload["unknown_count"] == 1
+    assert payload["active_count"] == 2
+    assert payload["needs_user_review_count"] == 1
+    assert payload["generation_completion_rate"] == 1 / 3
+
+
+def test_metrics_percentiles_use_completed_runs_and_inclusive_algorithm(db_override: None) -> None:
     engine = create_engine(TEST_DB_URL)
     with OrmSession(engine) as db:
         user = m.User(auth_provider="oidc", provider_subject="issue112-percentiles")
@@ -168,8 +207,9 @@ def test_metrics_percentiles_ignore_missing_latency_and_count_unknown(db_overrid
                 project,
                 session,
                 m.GenerationRun(session=session, user_id=user.id, status="completed", latency_ms=10),
-                m.GenerationRun(session=session, user_id=user.id, status="failed", latency_ms=None),
-                m.GenerationRun(session=session, user_id=user.id, status="unknown", latency_ms=30),
+                m.GenerationRun(session=session, user_id=user.id, status="completed", latency_ms=30),
+                m.GenerationRun(session=session, user_id=user.id, status="failed", latency_ms=100),
+                m.GenerationRun(session=session, user_id=user.id, status="generating", latency_ms=1000),
             ]
         )
         db.commit()
@@ -178,12 +218,9 @@ def test_metrics_percentiles_ignore_missing_latency_and_count_unknown(db_overrid
     response = client.get("/api/v1/metrics", headers=_auth("issue112-percentiles"))
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["sample_count"] == 3
-    assert payload["completed_count"] == 1
-    assert payload["failed_count"] == 1
-    assert payload["unknown_count"] == 1
-    assert payload["latency_ms"]["count"] == 2
-    assert payload["latency_ms"]["p50"] == 20.0
-    assert payload["latency_ms"]["p95"] == 29.0
-    assert payload["latency_ms"]["p99"] == 29.8
+    latency = response.json()["latency_ms"]
+    assert latency["count"] == 2
+    assert latency["average"] == 20.0
+    assert latency["p50"] == 20.0
+    assert latency["p95"] == 29.0
+    assert latency["p99"] == 29.8
