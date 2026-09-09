@@ -19,6 +19,7 @@
   <div hidden>
     <button id="generate"></button><button id="loginBtn"></button><button id="logoutBtn"></button>
     <button id="memoryBtn"></button><button id="profileBtn"></button>
+    <div id="memoryStatus"></div><div id="memoryList"></div>
     <div id="authChip"></div><p id="loginHint"></p><div id="results"></div>
     <div id="historyPanel"><p id="historyStatus"></p><select id="historyProject"></select><select id="historySession"></select><div id="historyVersions"></div></div>
   </div>
@@ -37,7 +38,7 @@
         document.getElementById('historyProject')?.closest('#historyPanel') === document.getElementById('historyPanel') &&
         document.getElementById('historySession')?.closest('#historyPanel') === document.getElementById('historyPanel'));
       try {
-        const source = await fetch('app.js').then(response => {
+        const source = await fetch('app.js?issue105=' + Date.now()).then(response => {
           if (!response.ok) throw new Error('app.js HTTP ' + response.status);
           return response.text();
         });
@@ -72,6 +73,19 @@
         record('历史面板失败状态提供显式重试入口', has(/historyRetry/) && has(/loadProjectHistory\(\)/));
         record('选择候选后明确渲染 selected parent',
           has(/function renderSelectedParent\(\)/) && has(/id = 'selectedParent'/) && has(/selected parent/));
+        record('Visual Memory 面板具备可解释字段与编辑控件',
+          document.getElementById('memoryList') && document.getElementById('memoryStatus') &&
+          has(/scope/) && has(/source/) && has(/confidence/) && has(/evidence_count/) &&
+          has(/evidence_ids/) && has(/status/) && has(/memoryList/) &&
+          has(/data-edit/) && has(/data-disable/) && has(/data-delete/));
+        record('Visual Memory 使用真实读写 API 契约',
+          has(/\/preferences\?scope=project&task_id=/) &&
+          has(/\/preferences\/\$\{encodeURIComponent\(id\)\}/) &&
+          has(/method = action === 'delete'/) && has(/'PATCH'/) && has(/'POST'/) && has(/'DELETE'/) &&
+          has(/\/disable/));
+        record('Visual Memory 提供加载、权限、错误与 stale readback 状态',
+          has(/正在加载视觉记忆/) && has(/无权限/) && has(/记忆读取失败/) && has(/stale/) &&
+          has(/refreshVisualMemory/));
         record('切换 Refine 显示 parent 与保留项/修改项',
           has(/function renderRefineContext\(\)/) && has(/refineContext/) && has(/refineParentStatus/) &&
           has(/保留/) && has(/修改/) && has(/parent_version_id/));
