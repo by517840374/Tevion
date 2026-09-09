@@ -22,6 +22,7 @@
     <div id="memoryStatus"></div><div id="memoryList"></div>
     <div id="authChip"></div><p id="loginHint"></p><div id="results"></div>
     <div id="historyPanel"><p id="historyStatus"></p><select id="historyProject"></select><select id="historySession"></select><div id="historyVersions"></div></div>
+    <section id="metricsSummary"><p id="metricsStatus"></p><div id="metricsGrid"></div></section>
   </div>
   <script src="app.js"></script>
   <script>
@@ -37,6 +38,8 @@
       record('项目与会话选择控件属于历史面板',
         document.getElementById('historyProject')?.closest('#historyPanel') === document.getElementById('historyPanel') &&
         document.getElementById('historySession')?.closest('#historyPanel') === document.getElementById('historyPanel'));
+      record('metrics summary DOM 完整',
+        ['metricsSummary', 'metricsStatus', 'metricsGrid'].every(id => Boolean(document.getElementById(id))));
       try {
         const source = await fetch('app.js?issue105=' + Date.now()).then(response => {
           if (!response.ok) throw new Error('app.js HTTP ' + response.status);
@@ -62,6 +65,15 @@
           /function loadProjectHistory\(\)[\s\S]*await loadHistorySessions\(historyProjects\[0\]\.id\)/.test(source) &&
           /function loadHistorySessions\(projectId\)[\s\S]*await loadHistoryVersions\(historySessions\[0\]\.id\)/.test(source));
         record('历史查询使用统一 token helper', has(/function loadProjectHistory\(\)[\s\S]*getToken\(\)/));
+        record('metrics 使用真实 GET endpoint 与 token helper',
+          has(/function loadMetrics\(\)/) && has(/api\(['"]\/metrics['"]\)/) &&
+          has(/function loadMetrics\(\)[\s\S]*getToken\(\)/));
+        record('metrics 覆盖 loading、empty、error、401 与核心指标展示',
+          has(/正在加载产品指标/) && has(/暂无可用产品指标/) && has(/产品指标读取失败/) &&
+          has(/401/) && has(/generation_completion_rate/) && has(/candidate_selection_rate/) &&
+          has(/feedback_completion_rate/) && has(/explore_to_refine_rate/) &&
+          has(/average_generation_rounds/) && has(/latency_ms/) && has(/cost/));
+        record('登录态刷新时加载 metrics', has(/function refreshLoginUI\(\)[\s\S]*loadMetrics\(\)/));
         record('历史版本展示 parent_image_id lineage', has(/version\.parent_image_id/) && has(/history-parent/));
         record('历史接口失败提供可恢复提示',
           has(/历史版本读取失败：[\s\S]*可重新选择会话重试/) &&

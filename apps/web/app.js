@@ -196,6 +196,42 @@ async function loadProjectHistory() {
   }
 }
 
+function formatMetricPercent(value) { return (Number(value || 0) * 100).toFixed(1) + '%'; }
+function formatMetricNumber(value) { return Number(value || 0).toFixed(1); }
+
+function renderMetrics(data) {
+  const summary = $('metricsSummary'), status = $('metricsStatus'), grid = $('metricsGrid');
+  if (!summary || !status || !grid) return;
+  summary.setAttribute('aria-busy', 'false');
+  const latency = data.latency_ms || { count: 0, average: 0 };
+  const cost = data.cost || { count: 0, average: 0, total: 0 };
+  const hasData = Number(latency.count || 0) > 0 || Number(cost.count || 0) > 0 || Number(data.average_generation_rounds || 0) > 0 ||
+    [data.generation_completion_rate, data.candidate_selection_rate, data.feedback_completion_rate, data.explore_to_refine_rate].some(value => Number(value || 0) > 0);
+  status.textContent = hasData ? '当前账号的真实使用摘要。' : '暂无可用产品指标，完成一次生成后这里会显示摘要。';
+  grid.innerHTML = [
+    ['生成完成率', formatMetricPercent(data.generation_completion_rate)], ['候选选择率', formatMetricPercent(data.candidate_selection_rate)],
+    ['反馈完成率', formatMetricPercent(data.feedback_completion_rate)], ['Explore → Refine', formatMetricPercent(data.explore_to_refine_rate)],
+    ['平均生成轮数', formatMetricNumber(data.average_generation_rounds)], ['平均延迟', Math.round(Number(latency.average || 0)) + ' ms'],
+    ['平均成本', '$' + Number(cost.average || 0).toFixed(4)], ['累计成本', '$' + Number(cost.total || 0).toFixed(4)],
+  ].map(([label, value]) => '<div class="metric-card"><span>' + label + '</span><strong>' + value + '</strong></div>').join('');
+}
+
+function renderMetricsMessage(message, error = false) {
+  const summary = $('metricsSummary'), status = $('metricsStatus'), grid = $('metricsGrid');
+  if (!summary || !status || !grid) return;
+  summary.setAttribute('aria-busy', 'false'); status.textContent = message;
+  status.className = 'muted intro' + (error ? ' metrics-error' : ''); grid.innerHTML = '';
+}
+
+async function loadMetrics() {
+  if (!$('metricsSummary')) return;
+  if (!getToken()) return renderMetricsMessage('登录后加载当前账号指标。');
+  const summary = $('metricsSummary'); summary.setAttribute('aria-busy', 'true');
+  $('metricsStatus').textContent = '正在加载产品指标…'; $('metricsStatus').className = 'muted intro';
+  try { renderMetrics((await api('/metrics')) || {}); }
+  catch (err) { renderMetricsMessage(err.status === 401 ? '登录已失效，请重新「演示登录」后重试。' : '产品指标读取失败：' + err.message + ' 可重新登录后重试。', true); }
+}
+
 function randomString(bytes = 32) {
   const values = new Uint8Array(bytes);
   crypto.getRandomValues(values);
@@ -294,6 +330,7 @@ function refreshLoginUI() {
   const cta = $('loginCta');
   const results = $('results');
   if (cta) cta.hidden = has || results.classList.contains('results') || results.querySelector('.error-box');
+  loadMetrics();
 }
 
 async function handleLogin() {
