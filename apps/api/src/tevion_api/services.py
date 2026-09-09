@@ -707,13 +707,11 @@ def execute_generation(
                 result,
                 requested_count=request.output_count,
                 actual_count=actual_count,
-                completeness=(
-                    "complete"
-                    if actual_count == request.output_count
-                    else "partial"
-                    if actual_count
-                    else "empty"
-                ),
+                completeness="complete"
+                if actual_count == request.output_count
+                else "partial"
+                if actual_count
+                else "empty",
                 shortfall=max(request.output_count - actual_count, 0),
             )
     except ProviderResponseError as exc:
