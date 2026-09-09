@@ -467,7 +467,39 @@ function stopElapsed() {
   if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
 }
 
-function renderResults(images) {
+function openLightbox(url, alt) {
+  let overlay = $('lightbox');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'lightbox';
+    overlay.className = 'lightbox-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', '候选图片大图预览');
+    overlay.innerHTML = '<button type="button" class="lightbox-close" aria-label="关闭大图预览">×</button><img class="lightbox-image" alt="">';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', event => { if (event.target === overlay || event.target.closest('.lightbox-close')) closeLightbox(); });
+  }
+  const image = overlay.querySelector('.lightbox-image');
+  image.src = url;
+  image.alt = alt || '候选图片大图';
+  overlay.hidden = false;
+  document.body.classList.add('lightbox-open');
+  overlay.querySelector('.lightbox-close').focus();
+}
+
+function closeLightbox() {
+  const overlay = $('lightbox');
+  if (!overlay) return;
+  overlay.hidden = true;
+  document.body.classList.remove('lightbox-open');
+}
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeLightbox();
+});
+
+function renderResults(images, outputMeta = {}) {
   stopElapsed();
   chosenId = null;
   renderRefineContext();
@@ -475,7 +507,14 @@ function renderResults(images) {
   r.className = 'results panel';
   r.setAttribute('aria-busy', 'false');
   $('resultsTitle').textContent = '你的视觉候选已就绪，选一张最接近你感觉的';
-  $('resultsMeta').textContent = images.length + ' 张候选 · 已就绪';
+  const requested = Number(outputMeta.requested_output_count ?? currentTask?.output_count ?? images.length);
+  const actual = Number(outputMeta.actual_output_count ?? images.length);
+  const shortfall = Number(outputMeta.output_shortfall ?? Math.max(0, requested - actual));
+  const completeness = outputMeta.output_completeness;
+  const quantityNote = actual === requested && !shortfall
+    ? '请求 ' + requested + ' 张 · 实际 ' + actual + ' 张'
+    : '请求 ' + requested + ' 张 · 实际 ' + actual + ' 张 · 少 ' + shortfall + ' 张' + (completeness ? '（' + escapeHtml(String(completeness)) + '）' : '');
+  $('resultsMeta').textContent = quantityNote + ' · 已就绪';
 
   const cards = images.map((img, i) => {
     const w = img.width || 1, h = img.height || 1;
@@ -484,7 +523,7 @@ function renderResults(images) {
       '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(img.url) + '">' +
         '<div class="img-wrap" style="aspect-ratio:' + w + '/' + h + '">' +
           '<div class="img-loader">加载图片 ' + (i + 1) + '</div>' +
-          '<img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '">' +
+          '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
         '</div>' +
         '<div class="candidate-meta">' +
           '<div class="card-info">' +
@@ -503,8 +542,9 @@ function renderResults(images) {
       '<div><div class="eyebrow">EXPLORATION ROUND</div><h3>这组候选由真实生成管线产出</h3></div>' +
       '<div class="result-actions"><span class="muted" id="selectionNote"></span><button class="regen-button" id="regenerate">重新生成 ↻</button><span class="live-pill"><span class="status-dot"></span> 已完成</span></div>' +
     '</div>' +
+    '<div class="candidate-count" role="status">' + quantityNote + '。' + (shortfall ? '本次以实际返回为准，拼图内容仍算一张候选图。' : '') + '</div>' +
     '<div class="candidate-grid">' + cards + '</div>' +
-    '<p class="result-hint">选择、拒绝和继续当前方向都会提交为反馈事件，帮助 Agent 更快收敛。</p>';
+    '<p class="result-hint">' + quantityNote + '。选择、拒绝和继续当前方向都会提交为反馈事件，帮助 Agent 更快收敛。</p>';
 
   // 图片加载完成 → 淡入（灰底占位 → 真实图）
   r.querySelectorAll('.img-wrap').forEach(wrap => {
@@ -516,6 +556,9 @@ function renderResults(images) {
       wrap.querySelector('.img-loader').textContent = '图片加载失败';
       toast('候选图加载失败，可尝试「重新生成」。', 'error');
     }, { once: true });
+  });
+  r.querySelectorAll('[data-lightbox]').forEach(button => {
+    button.addEventListener('click', () => openLightbox(button.dataset.lightbox, button.querySelector('img')?.alt));
   });
 
   $('regenerate').addEventListener('click', () => handleGenerate({ reuse: true }));
@@ -795,6 +838,7 @@ async function handleGenerate({ reuse = false } = {}) {
     // 兼容：generate 若未直接返回图片，则回查任务详情
     if (!images) {
       const detail = await api('/tasks/' + currentTask.task_id);
+      resp = { ...resp, ...detail };
       images = detail && Array.isArray(detail.images) ? detail.images : null;
     }
     if (!images || !images.length) {
@@ -802,7 +846,8 @@ async function handleGenerate({ reuse = false } = {}) {
       throw new Error('生成接口未返回图片（status=' + status + '）。请确认后端 generate 已返回 images 数组。');
     }
     currentTask.run_id = resp.run_id || currentTask.run_id;
-    renderResults(images);
+    currentTask.output_meta = resp;
+    renderResults(images, resp);
     toast('生成完成：' + images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
     stopElapsed();
