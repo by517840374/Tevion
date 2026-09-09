@@ -1,5 +1,6 @@
 import hashlib
 import json
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
@@ -26,6 +27,10 @@ from .provider import (
     ProviderResponseError,
     classify_provider_error,
 )
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
 @dataclass(frozen=True)
@@ -608,11 +613,104 @@ def project_preferences_for_task(
                 value=pref_event.value,
                 source=pref_event.source,
                 deleted=pref_event.deleted,
+                preference_id=pref_event.preference_id or pref_event.id,
+                status=pref_event.status,
+                evidence_id=pref_event.id,
             )
         )
 
     projected = PreferenceProjector().project(evidence)
-    return [item for item in projected if item.scope == scope]
+    return [item for item in projected if item.scope == scope and item.status == "active"]
+
+
+def _latest_preference(db: OrmSession, user_id: str, preference_id: str) -> PreferenceEvent | None:
+    events = list(
+        db.scalars(
+            select(PreferenceEvent)
+            .where(PreferenceEvent.user_id == user_id, PreferenceEvent.preference_id == preference_id)
+            .order_by(PreferenceEvent.created_at, PreferenceEvent.id)
+        )
+    )
+    if not events:
+        return None
+    events[-1]._lineage = events
+    return events[-1]
+
+
+def create_preference(db: OrmSession, user_id: str, payload: object) -> PreferenceEvent:
+    task = get_task_for_user(db, user_id, payload.task_id)
+    if task is None:
+        raise ValueError("task not found")
+    expected = (
+        task.session.project_id
+        if payload.scope == "project"
+        else task.session.id
+        if payload.scope == "session"
+        else None
+    )
+    if payload.scope_id != expected:
+        raise ValueError("scope_id does not belong to task")
+    event = PreferenceEvent(
+        user_id=user_id,
+        preference_id=_new_id("preference"),
+        scope=payload.scope,
+        scope_id=expected,
+        key=payload.key,
+        value=payload.value,
+        source="user_edit",
+        confidence=1.0,
+        status="active",
+    )
+    db.add(event)
+    db.commit()
+    return event
+
+
+def update_preference(db: OrmSession, user_id: str, preference_id: str, value: str) -> PreferenceEvent:
+    latest = _latest_preference(db, user_id, preference_id)
+    if latest is None:
+        raise ValueError("preference not found")
+    if latest.status == "active" and latest.value == value:
+        return latest
+    event = PreferenceEvent(
+        user_id=user_id,
+        preference_id=preference_id,
+        scope=latest.scope,
+        scope_id=latest.scope_id,
+        key=latest.key,
+        value=value,
+        source="user_edit",
+        confidence=1.0,
+        status="active",
+    )
+    db.add(event)
+    db.commit()
+    setattr(event, "_lineage", [*getattr(latest, "_lineage", [latest]), event])
+    return event
+
+
+def set_preference_status(db: OrmSession, user_id: str, preference_id: str, status: str) -> PreferenceEvent:
+    latest = _latest_preference(db, user_id, preference_id)
+    if latest is None:
+        raise ValueError("preference not found")
+    if latest.status == status:
+        return latest
+    event = PreferenceEvent(
+        user_id=user_id,
+        preference_id=preference_id,
+        scope=latest.scope,
+        scope_id=latest.scope_id,
+        key=latest.key,
+        value=latest.value,
+        source=f"user_{status}",
+        confidence=latest.confidence,
+        deleted=status == "deleted",
+        status=status,
+    )
+    db.add(event)
+    db.commit()
+    setattr(event, "_lineage", [*getattr(latest, "_lineage", [latest]), event])
+    return event
 
 
 def _parse_pixel_size(size: str | None) -> tuple[int | None, int | None]:

@@ -240,6 +240,7 @@ PreferenceScope = Literal["project", "session", "user"]
 
 
 class PreferenceView(BaseModel):
+    id: str | None = None
     key: str
     value: str
     source: str
@@ -247,6 +248,24 @@ class PreferenceView(BaseModel):
     scope: PreferenceScope
     scope_id: str | None = None
     evidence_count: int
+    status: Literal["active", "disabled", "deleted"] = "active"
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class PreferenceCreateRequest(BaseModel):
+    scope: PreferenceScope
+    scope_id: str | None = None
+    task_id: str
+    key: str = Field(min_length=1, max_length=64)
+    value: str = Field(min_length=1, max_length=255)
+
+
+class PreferenceUpdateRequest(BaseModel):
+    value: str = Field(min_length=1, max_length=255)
+
+
+class PreferenceMutationResponse(PreferenceView):
+    pass
 
 
 class PreferenceListResponse(BaseModel):

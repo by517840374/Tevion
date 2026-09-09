@@ -18,6 +18,9 @@ class FeedbackEvidence:
     scope_id: str | None = None
     consented: bool = False
     deleted: bool = False
+    preference_id: str | None = None
+    status: str = "active"
+    evidence_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,9 @@ class ProjectedPreference:
     weight: float
     source: str
     evidence_count: int
+    id: str = ""
+    status: str = "active"
+    evidence_ids: tuple[str, ...] = ()
 
 
 _SOURCE_WEIGHTS: dict[str, float] = {
@@ -52,27 +58,47 @@ class PreferenceProjector:
         for event in events:
             if event.scope == "global" and not event.consented:
                 continue
-            bucket_key = (event.scope, event.scope_id, event.key, event.value)
-            if event.deleted:
+            identity = event.preference_id or f"legacy:{event.scope}:{event.scope_id or ''}:{event.key}:{event.value}"
+            bucket_key = (event.scope, event.scope_id, identity, event.key)
+            if event.deleted or event.status == "deleted":
                 buckets.pop(bucket_key, None)
                 continue
-            bucket = buckets.setdefault(bucket_key, {"weight": 0.0, "count": 0, "best_source": "", "best_weight": -1.0})
+            bucket = buckets.setdefault(
+                bucket_key,
+                {
+                    "id": event.preference_id or identity,
+                    "value": event.value,
+                    "status": event.status,
+                    "weight": 0.0,
+                    "count": 0,
+                    "best_source": "",
+                    "best_weight": -1.0,
+                    "evidence_ids": [],
+                },
+            )
+            bucket["value"] = event.value
+            bucket["status"] = event.status
             weight = _SOURCE_WEIGHTS.get(event.source, 0.5)
             bucket["weight"] += weight
             bucket["count"] += 1
+            if event.evidence_id:
+                bucket["evidence_ids"].append(event.evidence_id)
             if weight > bucket["best_weight"]:
                 bucket["best_weight"] = weight
                 bucket["best_source"] = event.source
 
         projected = [
             ProjectedPreference(
+                id=value["id"],
                 scope=bucket_key[0],
                 scope_id=bucket_key[1],
-                key=bucket_key[2],
-                value=bucket_key[3],
+                key=bucket_key[3],
+                value=value["value"],
                 weight=value["weight"],
                 source=value["best_source"],
                 evidence_count=value["count"],
+                status=value["status"],
+                evidence_ids=tuple(value["evidence_ids"]),
             )
             for bucket_key, value in buckets.items()
         ]
