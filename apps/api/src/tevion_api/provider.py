@@ -75,11 +75,7 @@ class GenerationResult:
         completeness = self.completeness
         if completeness is None:
             completeness = (
-                "complete"
-                if actual_count == self.requested_count
-                else "partial"
-                if actual_count
-                else "empty"
+                "complete" if actual_count == self.requested_count else "partial" if actual_count else "empty"
             )
         object.__setattr__(self, "actual_count", actual_count)
         object.__setattr__(self, "shortfall", shortfall)
