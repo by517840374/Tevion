@@ -113,6 +113,11 @@ class TaskDetail(BaseModel):
     reconciliation_required: bool | None = None
     reconciliation_reason: str | None = None
     history: list["GenerationRunResponse"] = Field(default_factory=list)
+    requested_output_count: int | None = None
+    actual_output_count: int = 0
+    output_completeness: Literal["complete", "partial", "empty"] = "empty"
+    output_shortfall: int = 0
+    retryable: bool = False
 
 
 class GenerationRunResponse(BaseModel):
@@ -135,6 +140,11 @@ class GenerationRunResponse(BaseModel):
     images: list[ImageSummary] = Field(default_factory=list)
     reconciliation_required: bool | None = None
     reconciliation_reason: str | None = None
+    requested_output_count: int | None = None
+    actual_output_count: int = 0
+    output_completeness: Literal["complete", "partial", "empty"] = "empty"
+    output_shortfall: int = 0
+    retryable: bool = False
 
 
 class GenerateRequest(BaseModel):
@@ -149,6 +159,11 @@ class GenerateResponse(BaseModel):
     run_id: str
     parent_run_id: str | None = None
     images: list[ImageSummary] = Field(default_factory=list)
+    requested_output_count: int | None = None
+    actual_output_count: int = 0
+    output_completeness: Literal["complete", "partial", "empty"] = "empty"
+    output_shortfall: int = 0
+    retryable: bool = False
 
 
 class ReconciliationRequest(BaseModel):

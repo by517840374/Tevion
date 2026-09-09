@@ -203,8 +203,34 @@ def _redacted_error(message: str | None) -> str | None:
     return message
 
 
+def _output_contract(parameters: dict, *, actual_count: int, status: str) -> dict:
+    requested = parameters.get("output_count")
+    requested_count = int(requested) if isinstance(requested, int) and requested >= 0 else None
+    actual = max(0, actual_count)
+    if requested_count is None:
+        completeness = "complete" if actual else "empty"
+        shortfall = 0
+    elif actual == 0:
+        completeness = "empty"
+        shortfall = requested_count
+    elif actual < requested_count:
+        completeness = "partial"
+        shortfall = requested_count - actual
+    else:
+        completeness = "complete"
+        shortfall = 0
+    return {
+        "requested_output_count": requested_count,
+        "actual_output_count": actual,
+        "output_completeness": completeness,
+        "output_shortfall": shortfall,
+        "retryable": status in {"unknown", "failed"},
+    }
+
+
 def _run_response(db: OrmSession, task: services.CreatedTask) -> GenerationRunResponse:
     run = task.run
+    images = _image_summaries(db, run.id)
     return GenerationRunResponse(
         task_id=task.session.id,
         run_id=run.id,
@@ -222,9 +248,10 @@ def _run_response(db: OrmSession, task: services.CreatedTask) -> GenerationRunRe
         error_code=run.error_code,
         error_message=_redacted_error(run.error_message),
         estimated_cost=run.estimated_cost,
-        images=_image_summaries(db, run.id),
+        images=images,
         reconciliation_required=run.reconciliation_required,
         reconciliation_reason=run.reconciliation_reason,
+        **_output_contract(run.parameters_json or {}, actual_count=len(images), status=run.status),
     )
 
 
@@ -264,6 +291,7 @@ def generate_task(
             run_id=claimed.run.id,
             parent_run_id=claimed.run.parent_run_id,
             images=[],
+            **_output_contract(claimed.run.parameters_json or parameters, actual_count=0, status=claimed.run.status),
         )
     else:
         claimed.run.parameters_json = parameters
@@ -284,6 +312,9 @@ def generate_task(
             )
             for image in images
         ],
+        **_output_contract(
+            claimed.run.parameters_json or parameters, actual_count=len(images), status=claimed.run.status
+        ),
     )
 
 
@@ -315,6 +346,7 @@ def retry_task(
             run_id=retried.run.id,
             parent_run_id=retried.run.parent_run_id,
             images=[],
+            **_output_contract(retried.run.parameters_json or {}, actual_count=0, status=retried.run.status),
         )
     else:
         images = services.execute_generation(db, retried, provider)
@@ -333,6 +365,7 @@ def retry_task(
             )
             for image in images
         ],
+        **_output_contract(retried.run.parameters_json or {}, actual_count=len(images), status=retried.run.status),
     )
 
 
@@ -374,6 +407,11 @@ def get_task(
         estimated_cost=latest.estimated_cost,
         reconciliation_required=latest.reconciliation_required,
         reconciliation_reason=latest.reconciliation_reason,
+        requested_output_count=latest.requested_output_count,
+        actual_output_count=latest.actual_output_count,
+        output_completeness=latest.output_completeness,
+        output_shortfall=latest.output_shortfall,
+        retryable=latest.retryable,
         history=[_run_response(db, item) for item in history],
     )
 
