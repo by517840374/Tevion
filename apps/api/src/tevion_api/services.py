@@ -1,6 +1,6 @@
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
@@ -701,6 +701,19 @@ def execute_generation(
         result: GenerationResult = operation.result if operation is not None else provider.generate(request)
         if result is None:
             raise ProviderResponseError("provider operation returned no result")
+        if result.requested_count != request.output_count:
+            actual_count = len(result.asset_urls)
+            result = replace(
+                result,
+                requested_count=request.output_count,
+                actual_count=actual_count,
+                completeness="complete"
+                if actual_count == request.output_count
+                else "partial"
+                if actual_count
+                else "empty",
+                shortfall=max(request.output_count - actual_count, 0),
+            )
     except ProviderResponseError as exc:
         classification = classify_provider_error(exc)
         if classification.code == "timeout":

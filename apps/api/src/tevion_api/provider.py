@@ -64,6 +64,22 @@ class GenerationResult:
     metadata_source: str
     cost: float | None = None
     metadata: dict[str, Any] | None = None
+    requested_count: int = 1
+    actual_count: int | None = None
+    completeness: str | None = None
+    shortfall: int | None = None
+
+    def __post_init__(self) -> None:
+        actual_count = len(self.asset_urls) if self.actual_count is None else self.actual_count
+        shortfall = max(self.requested_count - actual_count, 0) if self.shortfall is None else self.shortfall
+        completeness = self.completeness
+        if completeness is None:
+            completeness = (
+                "complete" if actual_count == self.requested_count else "partial" if actual_count else "empty"
+            )
+        object.__setattr__(self, "actual_count", actual_count)
+        object.__setattr__(self, "shortfall", shortfall)
+        object.__setattr__(self, "completeness", completeness)
 
 
 @dataclass(frozen=True)
@@ -98,7 +114,9 @@ class GPTImageProvider:
             "aspect_ratio": request.aspect_ratio,
         }
 
-    def normalize_response(self, response: dict[str, Any], *, latency_ms: int) -> GenerationResult:
+    def normalize_response(
+        self, response: dict[str, Any], *, latency_ms: int, requested_count: int = 1
+    ) -> GenerationResult:
         request_id = response.get("id")
         data = response.get("data")
         if not isinstance(request_id, str) or not request_id:
@@ -128,6 +146,7 @@ class GPTImageProvider:
             metadata={"strategy_version": response.get("strategy_version")}
             if response.get("strategy_version")
             else None,
+            requested_count=requested_count,
         )
 
 
@@ -212,6 +231,7 @@ class MaizitechImageProvider:
                 asset_urls=[item["url"] for item in immediate_items if item.get("url")],
                 latency_ms=0,
                 metadata_source="provider_response",
+                requested_count=request.output_count,
             )
             return ProviderOperationResult(ProviderOperationStatus.COMPLETED, None, result=result)
         return ProviderOperationResult(ProviderOperationStatus.PENDING, task_id)
@@ -253,7 +273,9 @@ class MaizitechImageProvider:
             time.sleep(self.poll_interval_seconds)
         raise ProviderResponseError("provider task timed out")
 
-    def _result_from_body(self, task_id: str, body: dict[str, Any]) -> ProviderOperationResult:
+    def _result_from_body(
+        self, task_id: str, body: dict[str, Any], *, requested_count: int = 1
+    ) -> ProviderOperationResult:
         status = (body.get("status") or "").lower()
         if status == "completed":
             urls = body.get("result_urls") or []
@@ -273,6 +295,7 @@ class MaizitechImageProvider:
                 metadata_source="provider_response",
                 cost=float(body["cost"]) if body.get("cost") is not None else None,
                 metadata=self._safe_metadata(body),
+                requested_count=requested_count,
             )
             return ProviderOperationResult(ProviderOperationStatus.COMPLETED, task_id, result=result)
         if status in {"failed", "error", "cancelled"}:
@@ -284,19 +307,19 @@ class MaizitechImageProvider:
             )
         return ProviderOperationResult(ProviderOperationStatus.PENDING, task_id)
 
-    def _query(self, task_id: str) -> ProviderOperationResult:
+    def _query(self, task_id: str, *, requested_count: int = 1) -> ProviderOperationResult:
         response = self._client.get(f"{self.base_url}/tasks/{task_id}", headers=self._headers())
         response.raise_for_status()
-        return self._result_from_body(task_id, response.json())
+        return self._result_from_body(task_id, response.json(), requested_count=requested_count)
 
-    def poll(self, provider_request_id: str) -> ProviderOperationResult:
+    def poll(self, provider_request_id: str, *, requested_count: int = 1) -> ProviderOperationResult:
         """Poll an existing request, retaining its ID on transport uncertainty."""
         import time
 
         deadline = time.monotonic() + self.timeout_seconds
         while time.monotonic() < deadline:
             try:
-                outcome = self._query(provider_request_id)
+                outcome = self._query(provider_request_id, requested_count=requested_count)
             except (httpx.TimeoutException, httpx.TransportError) as error:
                 return ProviderOperationResult(
                     ProviderOperationStatus.UNKNOWN,
@@ -314,10 +337,10 @@ class MaizitechImageProvider:
             error_message="provider task polling timed out",
         )
 
-    def resume(self, provider_request_id: str) -> ProviderOperationResult:
+    def resume(self, provider_request_id: str, *, requested_count: int = 1) -> ProviderOperationResult:
         """Recover by querying a persisted ID; this method never submits."""
         try:
-            return self._query(provider_request_id)
+            return self._query(provider_request_id, requested_count=requested_count)
         except (httpx.TimeoutException, httpx.TransportError) as error:
             return ProviderOperationResult(
                 ProviderOperationStatus.UNKNOWN,
@@ -343,6 +366,7 @@ class MaizitechImageProvider:
                 metadata_source="provider_response",
                 cost=None,
                 metadata=None,
+                requested_count=request.output_count,
             )
         body = self._poll(task_id)
         latency_ms = int((time.monotonic() - started) * 1000)
@@ -358,6 +382,7 @@ class MaizitechImageProvider:
             metadata_source="provider_response",
             cost=float(body["cost"]) if body.get("cost") is not None else None,
             metadata=self._safe_metadata(body),
+            requested_count=request.output_count,
         )
 
     def close(self) -> None:

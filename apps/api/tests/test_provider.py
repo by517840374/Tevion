@@ -52,6 +52,24 @@ def test_provider_normalizes_a_valid_response_without_exposing_key() -> None:
     assert "secret" not in repr(result)
 
 
+def test_provider_normalizes_requested_and_actual_counts() -> None:
+    provider = GPTImageProvider(endpoint="https://example.test/images", api_key="secret")
+
+    result = provider.normalize_response(
+        {
+            "id": "provider-request-1",
+            "data": [{"url": "https://assets.example.test/image-1.png"}],
+        },
+        latency_ms=1,
+        requested_count=2,
+    )
+
+    assert result.requested_count == 2
+    assert result.actual_count == 1
+    assert result.completeness == "partial"
+    assert result.shortfall == 1
+
+
 def test_provider_rejects_malformed_response() -> None:
     provider = GPTImageProvider(endpoint="https://example.test/images", api_key="secret")
 
