@@ -270,3 +270,19 @@ class PreferenceMutationResponse(PreferenceView):
 
 class PreferenceListResponse(BaseModel):
     items: list[PreferenceView] = Field(default_factory=list)
+
+
+class MetricSummary(BaseModel):
+    count: int
+    average: float
+    total: float
+
+
+class ProductMetricsResponse(BaseModel):
+    generation_completion_rate: float
+    candidate_selection_rate: float
+    feedback_completion_rate: float
+    explore_to_refine_rate: float
+    average_generation_rounds: float
+    latency_ms: MetricSummary
+    cost: MetricSummary

@@ -540,6 +540,70 @@ def list_feedback_events_for_task(db: OrmSession, *, user_id: str, task_id: str)
     )
 
 
+def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
+    """Aggregate currently persisted product facts for one user."""
+    owned_sessions = (
+        select(Session.id).join(Project, Session.project_id == Project.id).where(Project.user_id == user_id)
+    )
+    session_ids = set(db.scalars(owned_sessions))
+    runs = (
+        list(db.scalars(select(GenerationRun).where(GenerationRun.session_id.in_(session_ids)))) if session_ids else []
+    )
+    generated_session_ids = (
+        set(
+            db.scalars(
+                select(GenerationRun.session_id)
+                .join(ImageVersion, ImageVersion.run_id == GenerationRun.id)
+                .where(GenerationRun.session_id.in_(session_ids))
+                .distinct()
+            )
+        )
+        if session_ids
+        else set()
+    )
+    feedback_events = (
+        list(
+            db.scalars(
+                select(FeedbackEvent).where(
+                    FeedbackEvent.user_id == user_id,
+                    FeedbackEvent.session_id.in_(session_ids),
+                )
+            )
+        )
+        if session_ids
+        else []
+    )
+    selected_session_ids = {event.session_id for event in feedback_events if event.event_type == "selected"}
+    explore_ids = set(db.scalars(select(Session.id).where(Session.id.in_(session_ids), Session.mode == "explore")))
+    explore_run_ids = {run.id for run in runs if run.session_id in explore_ids}
+    refine_from_explore = {run.session_id for run in runs if run.parent_run_id in explore_run_ids}
+    latency_values = [run.latency_ms for run in runs if run.latency_ms is not None]
+    cost_values = [run.estimated_cost for run in runs if run.estimated_cost is not None]
+
+    def ratio(numerator: int, denominator: int) -> float:
+        return numerator / denominator if denominator else 0.0
+
+    return {
+        "generation_completion_rate": ratio(sum(run.status == "completed" for run in runs), len(runs)),
+        "candidate_selection_rate": ratio(len(selected_session_ids), len(generated_session_ids)),
+        "feedback_completion_rate": ratio(
+            len({event.session_id for event in feedback_events}), len(generated_session_ids)
+        ),
+        "explore_to_refine_rate": ratio(len(refine_from_explore), len(explore_ids)),
+        "average_generation_rounds": ratio(len(runs), len(session_ids)),
+        "latency_ms": {
+            "count": len(latency_values),
+            "average": sum(latency_values) / len(latency_values) if latency_values else 0.0,
+            "total": sum(latency_values),
+        },
+        "cost": {
+            "count": len(cost_values),
+            "average": sum(cost_values) / len(cost_values) if cost_values else 0.0,
+            "total": sum(cost_values),
+        },
+    }
+
+
 def _feedback_to_evidence(feedback: FeedbackEvent, *, project_id: str) -> list[FeedbackEvidence]:
     payload = feedback.payload_json or {}
     evidences: list[FeedbackEvidence] = []
