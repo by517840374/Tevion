@@ -296,4 +296,6 @@ class ProductMetricsResponse(BaseModel):
     completed_count: int = 0
     failed_count: int = 0
     unknown_count: int = 0
+    active_count: int = 0
+    needs_user_review_count: int = 0
     unavailable_metrics: list[str] = Field(default_factory=list)
