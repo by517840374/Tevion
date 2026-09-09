@@ -66,8 +66,20 @@ def test_metrics_empty_data_returns_zeroed_user_scoped_snapshot(db_override: Non
         "feedback_completion_rate": 0.0,
         "explore_to_refine_rate": 0.0,
         "average_generation_rounds": 0.0,
-        "latency_ms": {"count": 0, "average": 0.0, "total": 0.0},
+        "latency_ms": {
+            "count": 0,
+            "average": 0.0,
+            "total": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+        },
         "cost": {"count": 0, "average": 0.0, "total": 0.0},
+        "sample_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+        "unknown_count": 0,
+        "unavailable_metrics": ["throughput", "concurrency", "retry_count", "time_to_accept"],
     }
 
 
@@ -122,11 +134,56 @@ def test_metrics_are_partial_and_isolated_to_current_user(db_override: None) -> 
         "feedback_completion_rate": 1.0,
         "explore_to_refine_rate": 1.0,
         "average_generation_rounds": 1.0,
-        "latency_ms": {"count": 2, "average": 75.0, "total": 150.0},
+        "latency_ms": {
+            "count": 2,
+            "average": 75.0,
+            "total": 150.0,
+            "p50": 75.0,
+            "p95": 97.5,
+            "p99": 99.5,
+        },
         "cost": {"count": 1, "average": 0.2, "total": 0.2},
+        "sample_count": 2,
+        "completed_count": 1,
+        "failed_count": 1,
+        "unknown_count": 0,
+        "unavailable_metrics": ["throughput", "concurrency", "retry_count", "time_to_accept"],
     }
 
     other = client.get("/api/v1/metrics", headers=_auth("issue106-unknown"))
     assert other.status_code == 200
     assert other.json()["generation_completion_rate"] == 0.0
     assert other.json()["latency_ms"]["count"] == 0
+
+
+def test_metrics_percentiles_ignore_missing_latency_and_count_unknown(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as db:
+        user = m.User(auth_provider="oidc", provider_subject="issue112-percentiles")
+        project = m.Project(user=user, name="Metrics")
+        session = m.Session(project=project, mode="explore")
+        db.add_all(
+            [
+                user,
+                project,
+                session,
+                m.GenerationRun(session=session, user_id=user.id, status="completed", latency_ms=10),
+                m.GenerationRun(session=session, user_id=user.id, status="failed", latency_ms=None),
+                m.GenerationRun(session=session, user_id=user.id, status="unknown", latency_ms=30),
+            ]
+        )
+        db.commit()
+    engine.dispose()
+
+    response = client.get("/api/v1/metrics", headers=_auth("issue112-percentiles"))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sample_count"] == 3
+    assert payload["completed_count"] == 1
+    assert payload["failed_count"] == 1
+    assert payload["unknown_count"] == 1
+    assert payload["latency_ms"]["count"] == 2
+    assert payload["latency_ms"]["p50"] == 20.0
+    assert payload["latency_ms"]["p95"] == 29.0
+    assert payload["latency_ms"]["p99"] == 29.8

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import statistics
 import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -580,11 +581,23 @@ def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
     latency_values = [run.latency_ms for run in runs if run.latency_ms is not None]
     cost_values = [run.estimated_cost for run in runs if run.estimated_cost is not None]
 
+    def percentile(values: list[int], percentile_value: float) -> float:
+        if not values:
+            return 0.0
+        if len(values) == 1:
+            return float(values[0])
+        quantiles = statistics.quantiles(values, n=100, method="inclusive")
+        return float(quantiles[int(percentile_value) - 1])
+
     def ratio(numerator: int, denominator: int) -> float:
         return numerator / denominator if denominator else 0.0
 
     return {
         "generation_completion_rate": ratio(sum(run.status == "completed" for run in runs), len(runs)),
+        "sample_count": len(runs),
+        "completed_count": sum(run.status == "completed" for run in runs),
+        "failed_count": sum(run.status == "failed" for run in runs),
+        "unknown_count": sum(run.status == "unknown" for run in runs),
         "candidate_selection_rate": ratio(len(selected_session_ids), len(generated_session_ids)),
         "feedback_completion_rate": ratio(
             len({event.session_id for event in feedback_events}), len(generated_session_ids)
@@ -595,12 +608,16 @@ def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
             "count": len(latency_values),
             "average": sum(latency_values) / len(latency_values) if latency_values else 0.0,
             "total": sum(latency_values),
+            "p50": percentile(latency_values, 50),
+            "p95": percentile(latency_values, 95),
+            "p99": percentile(latency_values, 99),
         },
         "cost": {
             "count": len(cost_values),
             "average": sum(cost_values) / len(cost_values) if cost_values else 0.0,
             "total": sum(cost_values),
         },
+        "unavailable_metrics": ["throughput", "concurrency", "retry_count", "time_to_accept"],
     }
 
 
