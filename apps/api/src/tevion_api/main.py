@@ -5,12 +5,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from . import services
-from .auth import create_dev_token, get_auth_settings, get_current_user
+from .auth import (
+    LOCAL_AUTH_PROVIDER,
+    create_dev_token,
+    create_local_token,
+    get_auth_settings,
+    get_current_user,
+    hash_password,
+    normalize_email,
+    verify_password,
+)
 from .cors import configure_cors
 from .db import get_db
 from .models import ImageVersion, User
 from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
 from .schemas import (
+    AuthTokenResponse,
     AuthUserResponse,
     CreateTaskRequest,
     DevTokenResponse,
@@ -22,6 +32,7 @@ from .schemas import (
     HealthResponse,
     ImageSummary,
     ImageVersionListResponse,
+    LoginRequest,
     PreferenceCreateRequest,
     PreferenceListResponse,
     PreferenceMutationResponse,
@@ -32,6 +43,7 @@ from .schemas import (
     ProjectListResponse,
     ProjectSummary,
     ReconciliationRequest,
+    RegisterRequest,
     SessionListResponse,
     SessionSummary,
     TaskDetail,
@@ -82,6 +94,44 @@ def dev_token() -> DevTokenResponse:
     if settings.jwks_url or not settings.dev_secret:
         raise HTTPException(status_code=503, detail="dev token endpoint is disabled")
     return DevTokenResponse(access_token=create_dev_token("demo_user"))
+
+
+def _auth_user_response(user: User) -> AuthUserResponse:
+    return AuthUserResponse(
+        id=user.id,
+        auth_provider=user.auth_provider,
+        provider_subject=user.provider_subject,
+        email=user.email,
+        display_name=user.display_name,
+    )
+
+
+@app.post("/api/v1/auth/register", response_model=AuthTokenResponse, status_code=201)
+def register(payload: RegisterRequest, db: OrmSession = Depends(get_db)) -> AuthTokenResponse:
+    email = normalize_email(payload.email)
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="invalid email address")
+    if db.scalar(select(User).where(User.auth_provider == LOCAL_AUTH_PROVIDER, User.provider_subject == email)):
+        raise HTTPException(status_code=409, detail="account already exists")
+    user = User(
+        auth_provider=LOCAL_AUTH_PROVIDER,
+        provider_subject=email,
+        email=email,
+        password_hash=hash_password(payload.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return AuthTokenResponse(access_token=create_local_token(email), user=_auth_user_response(user))
+
+
+@app.post("/api/v1/auth/login", response_model=AuthTokenResponse)
+def login(payload: LoginRequest, db: OrmSession = Depends(get_db)) -> AuthTokenResponse:
+    email = normalize_email(payload.email)
+    user = db.scalar(select(User).where(User.auth_provider == LOCAL_AUTH_PROVIDER, User.provider_subject == email))
+    if user is None or not user.password_hash or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="authentication failed")
+    return AuthTokenResponse(access_token=create_local_token(email), user=_auth_user_response(user))
 
 
 @app.get("/api/v1/auth/me", response_model=AuthUserResponse)
