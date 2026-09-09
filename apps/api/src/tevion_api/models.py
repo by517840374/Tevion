@@ -202,6 +202,7 @@ class PreferenceEvent(Base):
     __tablename__ = "preference_events"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("pref_event"))
+    preference_id: Mapped[str | None] = mapped_column(String(64), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     scope: Mapped[str] = mapped_column(String(16), nullable=False)
     scope_id: Mapped[str | None] = mapped_column(String(64))
@@ -210,6 +211,7 @@ class PreferenceEvent(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default="active")
     created_at: Mapped[datetime] = _ts()
 
     user: Mapped[User] = relationship()

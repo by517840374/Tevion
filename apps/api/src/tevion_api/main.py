@@ -22,7 +22,10 @@ from .schemas import (
     HealthResponse,
     ImageSummary,
     ImageVersionListResponse,
+    PreferenceCreateRequest,
     PreferenceListResponse,
+    PreferenceMutationResponse,
+    PreferenceUpdateRequest,
     PreferenceView,
     ProductMetadata,
     ProjectListResponse,
@@ -516,10 +519,74 @@ def get_preferences(
                 scope=item.scope,
                 scope_id=item.scope_id,
                 evidence_count=item.evidence_count,
+                id=item.id,
+                status=item.status,
+                evidence_ids=list(item.evidence_ids),
             )
             for item in projected
         ]
     )
+
+
+def _preference_response(event: object) -> PreferenceMutationResponse:
+    evidence_ids = [event.id]
+    if event.preference_id:
+        evidence_ids = [row.id for row in event.__dict__.get("_lineage", [event])]
+    return PreferenceMutationResponse(
+        id=event.preference_id or event.id,
+        key=event.key,
+        value=event.value,
+        source=event.source,
+        confidence=event.confidence,
+        scope=event.scope,
+        scope_id=event.scope_id,
+        evidence_count=len(evidence_ids),
+        status=event.status,
+        evidence_ids=evidence_ids,
+    )
+
+
+@app.post("/api/v1/preferences", response_model=PreferenceMutationResponse, status_code=201)
+def create_preference(
+    payload: PreferenceCreateRequest, current_user: User = Depends(get_current_user), db: OrmSession = Depends(get_db)
+):
+    try:
+        return _preference_response(services.create_preference(db, current_user.id, payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=404 if str(exc) == "task not found" else 422, detail=str(exc)) from exc
+
+
+@app.patch("/api/v1/preferences/{preference_id}", response_model=PreferenceMutationResponse)
+def update_preference(
+    preference_id: str,
+    payload: PreferenceUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+):
+    try:
+        return _preference_response(services.update_preference(db, current_user.id, preference_id, payload.value))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/preferences/{preference_id}/disable", response_model=PreferenceMutationResponse)
+def disable_preference(
+    preference_id: str, current_user: User = Depends(get_current_user), db: OrmSession = Depends(get_db)
+):
+    try:
+        return _preference_response(services.set_preference_status(db, current_user.id, preference_id, "disabled"))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/preferences/{preference_id}", response_model=PreferenceMutationResponse)
+def delete_preference(
+    preference_id: str, current_user: User = Depends(get_current_user), db: OrmSession = Depends(get_db)
+):
+    try:
+        return _preference_response(services.set_preference_status(db, current_user.id, preference_id, "deleted"))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/tasks/{task_id}/runtime", response_model=TaskRuntimeResponse)
