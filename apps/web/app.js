@@ -528,35 +528,76 @@ function renderFeedbackStatus(text, canRetry = false) {
   retry.hidden = !canRetry;
 }
 
+function setMemoryStatus(text, type = '') {
+  const status = $('memoryStatus');
+  if (status) { status.textContent = text; status.className = 'memory-status' + (type ? ' ' + type : ''); }
+}
+
+function preferenceId(item) { return item.id || ''; }
+
+function renderMemoryItems(items) {
+  const target = $('memoryList');
+  if (!target) return;
+  if (!items.length) { target.innerHTML = '<p class="muted">暂无可见记忆。</p>'; return; }
+  target.innerHTML = items.map(item => {
+    const evidence = Array.isArray(item.evidence_ids) ? item.evidence_ids : [];
+    const id = preferenceId(item);
+    return '<article class="memory-card" data-preference-id="' + escapeHtml(id) + '">' +
+      '<div class="memory-title"><strong>' + escapeHtml(item.key) + '</strong><span class="memory-status-badge ' + escapeHtml(item.status || 'active') + '">' + escapeHtml(item.status || 'active') + '</span></div>' +
+      '<p class="memory-value">' + escapeHtml(item.value) + '</p>' +
+      '<dl class="memory-evidence"><div><dt>scope</dt><dd>' + escapeHtml(item.scope || '—') + (item.scope_id ? ' · ' + escapeHtml(item.scope_id) : '') + '</dd></div><div><dt>source</dt><dd>' + escapeHtml(item.source || '—') + '</dd></div><div><dt>confidence</dt><dd>' + escapeHtml(String(item.confidence ?? '—')) + '</dd></div><div><dt>evidence_count</dt><dd>' + escapeHtml(String(item.evidence_count ?? evidence.length)) + '</dd></div><div class="evidence-ids"><dt>evidence_ids</dt><dd>' + escapeHtml(evidence.join(', ') || '—') + '</dd></div></dl>' +
+      (id && item.status !== 'deleted' ? '<div class="memory-actions"><button type="button" class="memory-edit" data-edit="' + escapeHtml(id) + '">编辑</button><button type="button" class="memory-disable" data-disable="' + escapeHtml(id) + '"' + (item.status === 'disabled' ? ' disabled' : '') + '>停用</button><button type="button" class="memory-delete" data-delete="' + escapeHtml(id) + '">删除</button></div>' : '') +
+      '</article>';
+  }).join('');
+}
+
 async function refreshVisualMemory() {
-  if (!currentTask || !currentTask.task_id) return;
-  const right = document.querySelector('.right-column');
-  if (!right) return;
+  const taskId = currentTask && currentTask.task_id;
+  if (!taskId) { setMemoryStatus('生成任务后加载你的可解释视觉记忆。'); return; }
+  const target = $('memoryList');
+  setMemoryStatus('正在加载视觉记忆…');
+  if (target) target.setAttribute('aria-busy', 'true');
   try {
-    const data = await api(`/preferences?scope=project&task_id=${encodeURIComponent(currentTask.task_id)}`);
+    const data = await api(`/preferences?scope=project&task_id=${encodeURIComponent(taskId)}`);
     const items = Array.isArray(data && data.items) ? data.items : [];
-    const grouped = items.reduce((acc, item) => {
-      const scope = item.scope || 'project';
-      (acc[scope] ||= []).push(item);
-      return acc;
-    }, {});
-    const makeTags = list => list.length
-      ? '<div class="memory-tags">' + list.map(item => '<span>' + escapeHtml(item.key + ': ' + item.value) + '</span>').join('') + '</div>'
-      : '<p class="muted">暂无可见记忆。</p>';
-    right.innerHTML =
-      '<div class="eyebrow">VISUAL MEMORY</div>' +
-      '<h2>Agent 对你的理解</h2>' +
-      '<p class="muted intro">来自偏好查询端点的项目记忆</p>' +
-      '<div class="memory-block"><div class="memory-title"><span>项目偏好</span><span class="confidence">' + items.length + ' 条</span></div>' +
-      makeTags(grouped.project || []) + '</div>' +
-      '<div class="memory-block dim"><div class="memory-title"><span>会话偏好</span><span class="confidence low">' + (grouped.session ? grouped.session.length : 0) + ' 条</span></div>' +
-      makeTags(grouped.session || []) + '</div>' +
-      '<div class="memory-footer"><span class="memory-pulse"></span><p>反馈后会从后端读取最新偏好。<br><button class="text-button" id="memoryBtn">刷新记忆 →</button></p></div>';
-    right.querySelector('#memoryBtn').addEventListener('click', refreshVisualMemory);
+    renderMemoryItems(items);
+    setMemoryStatus('已读取 ' + items.length + ' 条记忆。');
   } catch (err) {
-    right.querySelector('.intro').textContent = '记忆读取失败：' + err.message;
+    if (target) target.innerHTML = '<p class="memory-error">记忆读取失败：' + escapeHtml(err.message) + '</p>';
+    setMemoryStatus(err.status === 401 || err.status === 403 ? '无权限读取视觉记忆，请重新登录。' : '记忆读取失败，可重试。', 'error');
+  } finally { if (target) target.setAttribute('aria-busy', 'false'); }
+}
+
+async function mutatePreference(id, action, value) {
+  const method = action === 'delete' ? 'DELETE' : action === 'disable' ? 'POST' : 'PATCH';
+  const path = action === 'disable' ? `/preferences/${encodeURIComponent(id)}/disable` : `/preferences/${encodeURIComponent(id)}`;
+  const body = action === 'edit' ? { value } : undefined;
+  setMemoryStatus('正在保存记忆变更…');
+  try {
+    await api(path, { method, ...(body ? { body } : {}) });
+    await refreshVisualMemory();
+    setMemoryStatus('记忆已更新，已完成 stale readback 校验。');
+    toast(action === 'delete' ? '记忆已删除。' : action === 'disable' ? '记忆已停用。' : '记忆已编辑。', 'success');
+  } catch (err) {
+    setMemoryStatus(err.status === 401 || err.status === 403 ? '无权限修改这条记忆。' : '记忆变更失败：' + err.message, 'error');
   }
 }
+
+$('memoryList')?.addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const id = button.dataset.edit || button.dataset.disable || button.dataset.delete;
+  if (!id) return;
+  if (button.dataset.edit) {
+    const card = button.closest('.memory-card');
+    const value = window.prompt('编辑偏好内容', card?.querySelector('.memory-value')?.textContent || '');
+    if (value && value.trim()) mutatePreference(id, 'edit', value.trim());
+  } else if (button.dataset.disable) {
+    mutatePreference(id, 'disable');
+  } else if (button.dataset.delete && window.confirm('确认删除这条记忆？')) {
+    mutatePreference(id, 'delete');
+  }
+});
 
 async function handleCandidateAction(action, id) {
   if (!id) return;
