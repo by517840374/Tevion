@@ -278,11 +278,22 @@ class MetricSummary(BaseModel):
     total: float
 
 
+class LatencyMetricSummary(MetricSummary):
+    p50: float
+    p95: float
+    p99: float
+
+
 class ProductMetricsResponse(BaseModel):
     generation_completion_rate: float
     candidate_selection_rate: float
     feedback_completion_rate: float
     explore_to_refine_rate: float
     average_generation_rounds: float
-    latency_ms: MetricSummary
+    latency_ms: LatencyMetricSummary
     cost: MetricSummary
+    sample_count: int = 0
+    completed_count: int = 0
+    failed_count: int = 0
+    unknown_count: int = 0
+    unavailable_metrics: list[str] = Field(default_factory=list)
