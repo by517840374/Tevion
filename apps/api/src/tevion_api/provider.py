@@ -1,8 +1,10 @@
 import base64
 import binascii
+import time
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -55,6 +57,14 @@ class GenerationRequest:
     aspect_ratio: str = "1:1"
     strategy_version: str = "default"
     quality: str = "low"
+    image: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class MaizitechUploadResult:
+    url: str
+    task_id: str | None = None
+    cost: float | None = None
 
 
 @dataclass(frozen=True)
@@ -388,6 +398,7 @@ class MaizitechImageProvider:
         http_client: httpx.Client | None = None,
         poll_interval_seconds: float = 2.0,
         timeout_seconds: float = 180.0,
+        upload_max_attempts: int = 3,
     ) -> None:
         if not api_key.strip():
             raise ProviderConfigError("Maizitech API key is required")
@@ -398,6 +409,7 @@ class MaizitechImageProvider:
         self._owns_client = http_client is None
         self.poll_interval_seconds = poll_interval_seconds
         self.timeout_seconds = timeout_seconds
+        self.upload_max_attempts = max(1, upload_max_attempts)
 
     @property
     def provider_name(self) -> str:
@@ -415,6 +427,8 @@ class MaizitechImageProvider:
         }
         if request.output_count > 1:
             payload["n"] = request.output_count
+        if request.image:
+            payload["image"] = request.image
         response = self._client.post(f"{self.base_url}/images/generations", headers=self._headers(), json=payload)
         response.raise_for_status()
         body = response.json()
@@ -426,6 +440,72 @@ class MaizitechImageProvider:
         if not isinstance(task_id, str) or not task_id:
             raise ProviderResponseError("provider returned no task id")
         return task_id, []
+
+    @staticmethod
+    def _upload_filename(mime_type: str) -> str:
+        suffixes = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+        normalized = mime_type.split(";", 1)[0].strip().lower()
+        if normalized not in suffixes:
+            raise ProviderConfigError("unsupported parent image MIME type")
+        return f"parent.{suffixes[normalized]}"
+
+    def upload_image(self, image: bytes, mime_type: str) -> MaizitechUploadResult:
+        if not image:
+            raise ProviderConfigError("parent image is required")
+        normalized_mime = mime_type.split(";", 1)[0].strip().lower()
+        filename = self._upload_filename(normalized_mime)
+        for attempt in range(self.upload_max_attempts):
+            response = self._client.post(
+                f"{self.base_url}/files/upload",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                data={"type": "image"},
+                files={"file": (filename, image, normalized_mime)},
+            )
+            if response.status_code == 409 and attempt + 1 < self.upload_max_attempts:
+                try:
+                    delay = min(max(float(response.headers.get("Retry-After", "0")), 0.0), 5.0)
+                except ValueError:
+                    delay = 0.0
+                time.sleep(delay)
+                continue
+            response.raise_for_status()
+            body = response.json()
+            if not isinstance(body, dict):
+                raise ProviderResponseError("Maizitech upload response is malformed")
+            url = body.get("url")
+            if not isinstance(url, str):
+                raise ProviderResponseError("Maizitech upload response URL is missing")
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or not parsed.netloc:
+                raise ProviderResponseError("Maizitech upload response URL must be HTTPS")
+            cost = body.get("cost")
+            if cost is not None and not isinstance(cost, (int, float)):
+                raise ProviderResponseError("Maizitech upload cost is malformed")
+            task_id = body.get("task_id") if isinstance(body.get("task_id"), str) else None
+            return MaizitechUploadResult(url=url, task_id=task_id, cost=float(cost) if cost is not None else None)
+        raise ProviderResponseError("Maizitech upload retries exhausted")
+
+    def edit_image(
+        self, *, prompt: str, image: bytes, mime_type: str, parent_image_id: str, parent_run_id: str, owner_id: str
+    ) -> GenerationResult:
+        for value, message in (
+            (parent_image_id, "parent image id is required"),
+            (parent_run_id, "parent run id is required"),
+            (owner_id, "owner id is required"),
+        ):
+            if not value.strip():
+                raise ProviderConfigError(message)
+        uploaded = self.upload_image(image, mime_type)
+        result = self.generate(GenerationRequest(prompt=prompt, output_count=1, image=[uploaded.url]))
+        metadata = {
+            **(result.metadata or {}),
+            "operation": "image_to_image",
+            "parent_image_id": parent_image_id,
+            "parent_run_id": parent_run_id,
+            "owner_id": owner_id,
+            "upload_cost": uploaded.cost,
+        }
+        return replace(result, metadata=metadata, cost=None)
 
     def submit(self, request: GenerationRequest) -> ProviderOperationResult:
         """Submit exactly once and return the provider ID before polling."""
@@ -612,6 +692,7 @@ __all__ = [
     "PixhubImageProvider",
     "ImageGenerationProvider",
     "MaizitechImageProvider",
+    "MaizitechUploadResult",
     "ProviderConfigError",
     "ProviderResponseError",
     "ProviderOperationStatus",
