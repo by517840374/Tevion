@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import statistics
 import uuid
 from dataclasses import dataclass, replace
@@ -10,6 +11,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
+from .assets import AssetError, LocalAssetStore
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
 from .models import (
     FeedbackEvent,
@@ -844,6 +846,8 @@ def execute_generation(
     db: OrmSession,
     task: CreatedTask,
     provider: ImageGenerationProvider,
+    *,
+    asset_store: LocalAssetStore | None = None,
 ) -> list[ImageVersion]:
     """Run one real generation and persist every output image version.
 
@@ -873,7 +877,24 @@ def execute_generation(
         quality=str(parameters.get("quality") or "low"),
     )
     try:
-        if run.status == "unknown" and run.provider_request_id and hasattr(provider, "resume"):
+        result: GenerationResult | None = None
+        if session.mode == "refine" and hasattr(provider, "edit_image"):
+            parent_id = parameters.get("parent_image_id")
+            parent = db.get(ImageVersion, parent_id) if isinstance(parent_id, str) else None
+            if parent is None:
+                raise AssetError("parent asset not found")
+            if asset_store is None:
+                asset_store = LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+            result = provider.edit_image(  # type: ignore[attr-defined]
+                prompt=request.prompt,
+                image=asset_store.read(parent.asset_uri),
+                mime_type=parent.mime_type or "image/png",
+                parent_image_id=parent.id,
+                parent_run_id=run.parent_run_id or parent.run_id,
+                owner_id=run.user_id or "",
+            )
+            operation = None
+        elif run.status == "unknown" and run.provider_request_id and hasattr(provider, "resume"):
             operation = provider.resume(run.provider_request_id)  # type: ignore[attr-defined]
         elif hasattr(provider, "submit"):
             operation = provider.submit(request)  # type: ignore[attr-defined]
@@ -892,7 +913,10 @@ def execute_generation(
                 raise ProviderResponseError(operation.error_message or "provider task failed")
         else:
             operation = None
-        result: GenerationResult = operation.result if operation is not None else provider.generate(request)
+        if session.mode == "refine" and hasattr(provider, "edit_image"):
+            pass
+        else:
+            result = operation.result if operation is not None else provider.generate(request)
         if result is None:
             raise ProviderResponseError("provider operation returned no result")
         if result.requested_count != request.output_count:
@@ -934,7 +958,14 @@ def execute_generation(
     metadata["provider_request_id"] = result.provider_request_id
     metadata["metadata_source"] = result.metadata_source
     width, height = _parse_pixel_size(metadata.get("size"))
-    for asset_uri in result.asset_urls:
+    if asset_store is None and result.provider_name == "pixhub":
+        asset_store = LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+    for source, mime_type in zip(
+        result.asset_urls,
+        result.asset_mime_types or ["image/png"] * len(result.asset_urls),
+        strict=False,
+    ):
+        asset_uri = asset_store.persist_source(source, mime_type) if asset_store else source
         image = ImageVersion(
             run_id=run.id,
             parent_image_id=parameters.get("parent_image_id"),
