@@ -1012,6 +1012,7 @@ def reconcile_generation(
     user_id: str,
     provider: ImageGenerationProvider,
     reason: str,
+    asset_store: LocalAssetStore | None = None,
 ) -> CreatedTask | None:
     """Reconcile one persisted provider request without ever submitting again."""
     if task.run.user_id != user_id:
@@ -1122,12 +1123,18 @@ def reconcile_generation(
             }
         )
         width, height = _parse_pixel_size(metadata.get("size"))
-        for asset_uri in result.asset_urls:
+        if asset_store is None:
+            asset_store = LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+        for source, mime_type in zip(
+            result.asset_urls,
+            result.asset_mime_types or ["image/png"] * len(result.asset_urls),
+            strict=False,
+        ):
             db.add(
                 ImageVersion(
                     run_id=run.id,
                     parent_image_id=parameters.get("parent_image_id"),
-                    asset_uri=asset_uri,
+                    asset_uri=asset_store.persist_source(source, mime_type),
                     width=width,
                     height=height,
                     prompt=request.prompt,
