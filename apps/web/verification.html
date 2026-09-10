@@ -83,6 +83,17 @@
         record('工作台状态与候选操作具备可访问性契约',
           has(/aria-live/) && has(/aria-busy/) &&
           has(/aria-label=.*选择候选/) && has(/aria-label=.*拒绝候选/));
+        const returnedImageUrl = 'fixture://returned-image-1';
+        currentTask = { output_count: 3 };
+        renderLoading(1, '验证生成等待区', '仅显示等待占位，不代表任何图片已生成。');
+        const placeholders = document.querySelectorAll('[data-generation-placeholder="true"]');
+        record('多图生成逐卡片占位不伪造图片进度', placeholders.length === 3 &&
+          Array.from(placeholders).every(card => !card.querySelector('img') && card.textContent.includes('等待真实图片')));
+        renderResults([{ id: 'fixture-image-1', url: returnedImageUrl, width: 1, height: 1 }], {
+          requested_output_count: 3, actual_output_count: 1, output_shortfall: 2, output_completeness: 'partial'
+        });
+        record('真实返回图片替换等待占位', document.querySelectorAll('[data-generation-placeholder="true"]').length === 0 &&
+          document.querySelector('#results .candidate img')?.getAttribute('src') === returnedImageUrl);
         record('历史面板失败状态提供显式重试入口', has(/historyRetry/) && has(/loadProjectHistory\(\)/));
         record('选择候选后明确渲染 selected parent',
           has(/function renderSelectedParent\(\)/) && has(/id = 'selectedParent'/) && has(/selected parent/));
