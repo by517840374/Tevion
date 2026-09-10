@@ -17,7 +17,7 @@
     </section>
   </main>
   <div hidden>
-    <button id="generate"></button><button id="loginBtn"></button><button id="logoutBtn"></button>
+    <button id="generate"></button><button id="loginBtn"></button><button id="logoutBtn"></button><button id="createProject"></button><form id="projectForm"></form><input id="projectName"><textarea id="projectDescription"></textarea><p id="projectFormMessage"></p><select id="projectSelect"></select><span id="projectStatus"></span>
     <div id="toast"></div><div id="agentState"></div><div id="checkpointText"></div><h2 id="resultsTitle"></h2><span id="resultsMeta"></span>
     <button id="memoryBtn"></button><button id="profileBtn"></button>
     <div id="memoryStatus"></div><div id="memoryList"></div>
@@ -126,9 +126,11 @@
           has(/尚未选择 selected parent/) && has(/function syncRefineControls\(\)/) &&
           has(/count\.value = '1'/) && has(/精修默认生成 1 张/) &&
           document.getElementById('countHint'));
-        record('Refine 明确本地上传需要后端接口，不虚构 upload API',
-          has(/refineUploadNote/) && has(/上传本地图片的后端接口尚未提供/) &&
-          !has(/FormData/) && !has(/\/upload/));
+        record('Refine 本地上传使用约定 multipart API 并绑定 parent_version_id',
+          has(/new FormData\(\)/) && has(/form\.append\(['"]file['"]/) &&
+          has(/\/projects\/['"] \+ encodeURIComponent\(projectId\) \+ ['"]\/reference-images/) &&
+          has(/method: ['"]POST['"]/) && has(/parent_version_id/) &&
+          has(/HTTP 404/) && has(/HTTP 413/) && has(/HTTP 415/));
         record('Refine 创建任务保留 parent_version_id API body 契约',
           has(/mode: currentTask\.mode/) && has(/parent_version_id: currentTask\.parent_version_id/) &&
           has(/api\(['"]\/tasks['"]/));
@@ -141,6 +143,10 @@
         record('项目历史 select 使用 Tevion 视觉统一类',
           document.getElementById('historyProject')?.classList.contains('history-select') &&
           document.getElementById('historySession')?.classList.contains('history-select'));
+        record('项目管理具备新建、列表、切换与 session 持久化契约',
+          ['projectPicker','projectSelect','projectForm','projectName','projectDescription','createProject'].every(id => Boolean(document.getElementById(id))) &&
+          has(/function loadProjects\(\)/) && has(/function createProject\(/) && has(/sessionStorage\.setItem\(PROJECT_KEY/));
+        record('创建任务携带当前 project_id', has(/project_id: getProjectId\(\) \|\| null/) && has(/function getProjectId\(\)/));
         record('结果展示 requested actual 数量与短缺解释',
           has(/requested_output_count/) && has(/actual_output_count/) && has(/output_completeness/) &&
           has(/output_shortfall/) && has(/请求.*实际|实际.*请求/));
