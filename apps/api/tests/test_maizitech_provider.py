@@ -233,3 +233,72 @@ def test_resume_completed_and_failed_only_query_provider() -> None:
     assert failed.status is ProviderOperationStatus.FAILED
     assert failed.provider_request_id == "task_failed"
     assert requested == ["GET", "GET"]
+
+
+def test_uploads_parent_as_image_multipart_and_returns_https_url() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/files/upload")
+        seen["content_type"] = request.headers["content-type"]
+        seen["body"] = request.content
+        return httpx.Response(200, json={"url": "https://files.maizi.test/parent.png", "cost": 0})
+
+    result = _provider(handler).upload_image(b"png-bytes", "image/png")
+
+    assert result.url == "https://files.maizi.test/parent.png"
+    assert "multipart/form-data" in str(seen["content_type"])
+    body = bytes(seen["body"])
+    assert b'name="type"' in body and b"image" in body
+    assert b'name="file"' in body and b"png-bytes" in body
+
+
+def test_upload_retries_bounded_409_using_retry_after() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(409, headers={"Retry-After": "0"}, json={"error": "uploading"})
+        return httpx.Response(200, json={"url": "https://files.maizi.test/reused.png", "task_id": "upload-1"})
+
+    result = _provider(handler).upload_image(b"bytes", "image/jpeg")
+
+    assert result.url == "https://files.maizi.test/reused.png"
+    assert result.task_id == "upload-1"
+    assert attempts == 3
+
+
+def test_edit_uploads_parent_then_sends_image_reference() -> None:
+    requests: list[tuple[str, dict | bytes]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/files/upload"):
+            requests.append((request.url.path, request.content))
+            return httpx.Response(200, json={"url": "https://files.maizi.test/parent.png", "cost": 0})
+        if request.url.path.endswith("/images/generations"):
+            payload = json.loads(request.content)
+            requests.append((request.url.path, payload))
+            return httpx.Response(200, json={"data": [{"task_id": "task-edit", "status": "pending"}]})
+        assert request.url.path.endswith("/tasks/task-edit")
+        return httpx.Response(200, json={"status": "completed", "result_urls": ["https://files.maizi.test/result.png"]})
+
+    result = _provider(handler).edit_image(
+        prompt="保持人物身份，换成户外光线",
+        image=b"parent-bytes",
+        mime_type="image/png",
+        parent_image_id="image_parent",
+        parent_run_id="run_parent",
+        owner_id="user_owner",
+    )
+
+    assert result.provider_request_id == "task-edit"
+    assert requests[0][0].endswith("/files/upload")
+    payload = requests[1][1]
+    assert isinstance(payload, dict)
+    assert payload["image"] == ["https://files.maizi.test/parent.png"]
+    assert "n" not in payload
+    assert result.cost is None
+    assert result.metadata["upload_cost"] == 0
+    assert result.metadata["parent_image_id"] == "image_parent"
