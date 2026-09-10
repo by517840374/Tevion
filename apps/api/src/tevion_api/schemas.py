@@ -47,6 +47,7 @@ class TaskSummary(BaseModel):
     task_id: str
     run_id: str
     user_id: str
+    project_id: str
     status: TaskStatus
     request: str
     mode: str
@@ -93,6 +94,7 @@ class ImageVersionListResponse(BaseModel):
 
 class TaskDetail(BaseModel):
     task_id: str
+    project_id: str
     status: TaskStatus
     mode: str
     request: str

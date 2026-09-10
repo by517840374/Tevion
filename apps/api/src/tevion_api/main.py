@@ -300,6 +300,7 @@ def create_task(
         task_id=created.session.id,
         run_id=created.run.id,
         user_id=current_user.id,
+        project_id=created.session.project_id,
         status=TaskStatus(created.session.status),
         request=created.session.raw_request or "",
         mode=created.session.mode,
@@ -512,6 +513,7 @@ def get_task(
     history = services.list_generation_runs_for_user(db, current_user.id, task_id) or []
     return TaskDetail(
         task_id=task.session.id,
+        project_id=task.session.project_id,
         status=TaskStatus(task.session.status),
         mode=task.session.mode,
         request=task.session.raw_request or "",

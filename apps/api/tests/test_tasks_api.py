@@ -161,6 +161,7 @@ def test_create_task_without_project_id_still_uses_default_project(db_override: 
         project = session.get(m.Project, stored.project_id)
         assert project is not None
         assert project.name == "默认项目"
+        assert response.json()["project_id"] == stored.project_id
     engine.dispose()
 
 
@@ -252,6 +253,7 @@ def test_create_task_persists_session_and_run(db_override: None) -> None:
         assert run.parameters_json == {"output_count": 4, "aspect_ratio": "4:5", "quality": "low"}
         project = session.get(m.Project, stored_session.project_id)
         assert project is not None and project.name == "默认项目"
+        assert body["project_id"] == stored_session.project_id
     engine.dispose()
 
 
@@ -266,6 +268,7 @@ def test_owner_can_read_task_back(db_override: None) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["task_id"] == task_id
+    assert body["project_id"]
     assert body["request"] == "清爽成年男性"
     assert body["mode"] == "explore"
     assert body["run_id"].startswith("run_")
