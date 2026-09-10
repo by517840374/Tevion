@@ -177,3 +177,4 @@ def test_pixhub_edit_image_normalizes_b64_response_with_mime():
 
     assert result.asset_urls == ["data:image/png;base64,ZmFrZQ=="]
     assert result.metadata["operation"] == "image_to_image"
+
