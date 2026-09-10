@@ -78,7 +78,7 @@ def _completed_result(*, request_id: str = "provider-request-82", cost: float | 
         provider_name="fake",
         provider_request_id=request_id,
         model_name="gpt-image-2",
-        asset_urls=["https://cdn.example.test/one.png"],
+        asset_urls=["data:image/png;base64,YXNzZXQ="],
         latency_ms=12,
         metadata_source="provider_evidence",
         cost=cost,
