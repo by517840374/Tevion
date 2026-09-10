@@ -17,6 +17,8 @@ let elapsedTimer = null;
 let genStartedAt = 0;
 let historyProjects = [];
 let historySessions = [];
+const GENERATION_POLL_INTERVAL_MS = 3000;
+const GENERATION_POLL_TIMEOUT_MS = 90000;
 
 function toast(msg, type = 'info', ms = 5000) {
   const el = $('toast');
@@ -649,6 +651,99 @@ function renderResults(images, outputMeta = {}) {
   setCheckpoint('候选已生成：选择、拒绝或重新生成都将留下反馈记录。');
 }
 
+function candidateCardMarkup(img, i) {
+  const w = img.width || 1, h = img.height || 1;
+  const dims = (img.width && img.height) ? img.width + '×' + img.height : '';
+  return '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(img.url) + '">' +
+    '<div class="img-wrap" style="aspect-ratio:' + w + '/' + h + '">' +
+      '<div class="img-loader">加载图片 ' + (i + 1) + '</div>' +
+      '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
+    '</div><div class="candidate-meta"><div class="card-info"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' +
+    (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
+    '</div><button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
+    '<button type="button" class="reject-candidate" aria-label="拒绝候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button></div></article>';
+}
+
+function bindCandidateImages(root = $('results')) {
+  root.querySelectorAll('.img-wrap').forEach(wrap => {
+    const img = wrap.querySelector('img');
+    if (!img) return;
+    if (img.complete && img.naturalWidth > 0) wrap.classList.add('loaded');
+    else img.addEventListener('load', () => wrap.classList.add('loaded'), { once: true });
+    img.addEventListener('error', () => {
+      wrap.classList.add('loaded');
+      wrap.querySelector('.img-loader').textContent = '图片加载失败';
+      toast('候选图加载失败，可尝试「重新生成」。', 'error');
+    }, { once: true });
+  });
+  root.querySelectorAll('[data-lightbox]').forEach(button => {
+    button.addEventListener('click', () => openLightbox(button.dataset.lightbox, button.querySelector('img')?.alt));
+  });
+}
+
+// 只把后端实际返回的图片替换进等待卡，不模拟进度或生成虚假 URL。
+function updateGenerationPlaceholders(images) {
+  const placeholders = Array.from(document.querySelectorAll('[data-generation-placeholder="true"]'));
+  if (!placeholders.length || !images.length) return;
+  images.forEach((image, index) => {
+    const card = placeholders[index];
+    if (card && image?.url) card.outerHTML = candidateCardMarkup(image, index);
+  });
+  bindCandidateImages($('results'));
+}
+
+function renderRecoverableTask(message) {
+  stopElapsed();
+  setBusy(false);
+  const r = $('results');
+  r.className = 'results panel';
+  r.setAttribute('aria-busy', 'false');
+  r.innerHTML = '<div class="error-box"><div class="error-title">生成仍可继续查询</div><p>' + escapeHtml(message) + '</p><div class="actions"><button class="small-button" id="continueTaskQuery">继续查询/恢复任务</button><button class="secondary-button" id="errBack">修改需求重来</button></div></div>';
+  $('continueTaskQuery').addEventListener('click', () => resumeTaskQuery());
+  $('errBack').addEventListener('click', () => { currentTask = null; resetResults(); });
+  setAgentPill('等待继续查询', 'busy');
+  setCheckpoint('后端任务仍可通过任务详情查询；本页不声明 durable worker。');
+}
+
+async function pollTaskUntilComplete() {
+  const taskId = currentTask?.task_id;
+  if (!taskId) throw new Error('缺少任务 ID，无法恢复查询。');
+  const deadline = Date.now() + GENERATION_POLL_TIMEOUT_MS;
+  let lastDetail = null;
+  while (Date.now() < deadline) {
+    lastDetail = await api('/tasks/' + encodeURIComponent(taskId));
+    const images = Array.isArray(lastDetail?.images) ? lastDetail.images : [];
+    if (images.length) updateGenerationPlaceholders(images);
+    const status = String(lastDetail?.status || '').toLowerCase();
+    if (status === 'completed' && images.length) return lastDetail;
+    if (status === 'failed' || status === 'cancelled') throw new Error(lastDetail.error_message || '任务已结束但未返回图片（status=' + status + '）。');
+    await new Promise(resolve => setTimeout(resolve, GENERATION_POLL_INTERVAL_MS));
+  }
+  const timeout = new Error('查询已等待 90 秒，任务状态仍为 ' + String(lastDetail?.status || 'unknown') + '。');
+  timeout.recoveryRequired = true;
+  throw timeout;
+}
+
+async function resumeTaskQuery() {
+  if (busy || !currentTask?.task_id) return;
+  setBusy(true);
+  renderLoading(1, '继续查询生成任务', '只查询已创建的任务详情，不会重复提交生成。');
+  startElapsed();
+  try {
+    const detail = await pollTaskUntilComplete();
+    currentTask.run_id = detail.run_id || currentTask.run_id;
+    currentTask.output_meta = detail;
+    renderResults(detail.images, detail);
+    toast('任务已恢复：' + detail.images.length + ' 张候选已就绪。', 'success', 4000);
+  } catch (err) {
+    if (err.network || err.recoveryRequired) renderRecoverableTask(err.message || '暂时无法查询任务状态。');
+    else {
+      renderRecoverableTask(err.message || '任务查询未完成。');
+      toast('任务查询未完成：' + err.message, 'error', 9000);
+    }
+  }
+}
+
 /* ---------- 候选选择（事件委托） ---------- */
 async function submitFeedback(action, targetId, extra = {}) {
   if (!currentTask || !currentTask.task_id) {
@@ -917,11 +1012,15 @@ async function handleGenerate({ reuse = false } = {}) {
     let resp = await api('/tasks/' + currentTask.task_id + '/generate', { method: 'POST' });
     let images = resp && Array.isArray(resp.images) ? resp.images : null;
 
-    // 兼容：generate 若未直接返回图片，则回查任务详情
-    if (!images) {
-      const detail = await api('/tasks/' + currentTask.task_id);
-      resp = { ...resp, ...detail };
-      images = detail && Array.isArray(detail.images) ? detail.images : null;
+    // 同步接口若只确认任务仍在生成，则仅回查任务详情；不重复 POST，也不宣称 durable worker。
+    if (!images || !images.length) {
+      if (resp && ['generating', 'unknown'].includes(String(resp.status || '').toLowerCase())) {
+        resp = await pollTaskUntilComplete();
+      } else {
+        const detail = await api('/tasks/' + currentTask.task_id);
+        resp = { ...resp, ...detail };
+      }
+      images = resp && Array.isArray(resp.images) ? resp.images : null;
     }
     if (!images || !images.length) {
       const status = (resp && resp.status) || '';
@@ -933,6 +1032,10 @@ async function handleGenerate({ reuse = false } = {}) {
     toast('生成完成：' + images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
     stopElapsed();
+    if (err.network || err.recoveryRequired) {
+      renderRecoverableTask(err.message || '暂时无法查询任务状态。');
+      return;
+    }
     setBusy(false);
     const msg = err.message || String(err);
     toast('生成失败：' + msg, 'error', 9000);

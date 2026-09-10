@@ -95,6 +95,14 @@
         });
         record('真实返回图片替换等待占位', document.querySelectorAll('[data-generation-placeholder="true"]').length === 0 &&
           document.querySelector('#results .candidate img')?.getAttribute('src') === returnedImageUrl);
+        record('生成任务仅在 generating/unknown 时有界轮询详情',
+          has(/GENERATION_POLL_INTERVAL_MS/) && has(/GENERATION_POLL_TIMEOUT_MS/) &&
+          has(/function pollTaskUntilComplete\(\)/) && has(/仅回查任务详情/) &&
+          has(/不会重复提交生成/));
+        record('查询超时或断开提供继续查询/恢复任务操作',
+          has(/function renderRecoverableTask\(/) && has(/继续查询\/恢复任务/) &&
+          has(/function resumeTaskQuery\(\)/) && has(/recoveryRequired/) &&
+          has(/不声明 durable worker/));
         record('历史面板失败状态提供显式重试入口', has(/historyRetry/) && has(/loadProjectHistory\(\)/));
         record('选择候选后明确渲染 selected parent',
           has(/function renderSelectedParent\(\)/) && has(/id = 'selectedParent'/) && has(/selected parent/));
