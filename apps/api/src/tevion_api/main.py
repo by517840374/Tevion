@@ -29,6 +29,7 @@ from .provider import (
 from .schemas import (
     AuthTokenResponse,
     AuthUserResponse,
+    CreateProjectRequest,
     CreateTaskRequest,
     DevTokenResponse,
     FeedbackRequest,
@@ -212,6 +213,16 @@ def list_projects(
             for project in services.list_projects_for_user(db, current_user.id)
         ]
     )
+
+
+@app.post("/api/v1/projects", response_model=ProjectSummary, status_code=201)
+def create_project(
+    payload: CreateProjectRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ProjectSummary:
+    project = services.create_project(db, current_user, name=payload.name, description=payload.description)
+    return ProjectSummary(id=project.id, name=project.name, description=project.description)
 
 
 @app.get("/api/v1/projects/{project_id}/sessions", response_model=SessionListResponse)
