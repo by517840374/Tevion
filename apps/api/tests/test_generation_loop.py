@@ -9,6 +9,8 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session as OrmSession
 
 from tevion_api import models as m
+from tevion_api import services
+from tevion_api.assets import LocalAssetStore
 from tevion_api.auth import DEFAULT_AUDIENCE
 from tevion_api.db import Base, get_db
 from tevion_api.main import app, get_image_provider
@@ -259,6 +261,40 @@ def test_generate_persists_images_and_updates_status(db_override: None) -> None:
         stored_session = session.get(m.Session, task_id)
         assert stored_session is not None
         assert stored_session.status == "awaiting_selection"
+    engine.dispose()
+
+
+def test_generate_normalizes_provider_b64_before_persisting_image_version(db_override: None, tmp_path) -> None:
+    import base64
+
+    task_id = _create_task(sub="asset-owner")
+    payload = base64.b64encode(b"png-bytes").decode()
+
+    class B64Provider:
+        def generate(self, request: GenerationRequest) -> GenerationResult:
+            return GenerationResult(
+                provider_name="fake",
+                provider_request_id="b64-request",
+                model_name="model",
+                asset_urls=[f"data:image/png;base64,{payload}"],
+                latency_ms=1,
+                metadata_source="fake",
+                requested_count=1,
+            )
+
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        task = services.get_task_for_user(session, "asset-owner", task_id)
+        if task is None:
+            user = session.scalar(select(m.User).where(m.User.provider_subject == "asset-owner"))
+            assert user is not None
+            task = services.get_task_for_user(session, user.id, task_id)
+        assert task is not None
+        images = services.execute_generation(session, task, B64Provider(), asset_store=LocalAssetStore(tmp_path))
+        assert len(images) == 1
+        assert images[0].asset_uri.startswith("tevion://assets/")
+        assert "data:" not in images[0].asset_uri
+        assert (tmp_path / images[0].asset_uri.rsplit("/", 1)[-1]).read_bytes() == b"png-bytes"
     engine.dispose()
 
 
