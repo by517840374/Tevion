@@ -34,7 +34,7 @@ class CreateTaskRequest(BaseModel):
     project_id: str | None = None
     parent_version_id: str | None = None
     mode: str = Field(default="explore", pattern="^(explore|refine)$")
-    output_count: int = Field(default=4, ge=2, le=4)
+    output_count: int = Field(default=4, ge=1, le=4)
     aspect_ratio: str = Field(default="4:5", pattern=r"^\d+:\d+$")
 
 
