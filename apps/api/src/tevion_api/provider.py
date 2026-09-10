@@ -7,6 +7,7 @@ from typing import Any, Protocol
 import httpx
 
 DEFAULT_MAIZI_BASE_URL = "https://www.maizitech.ai/v1"
+DEFAULT_PIXHUB_BASE_URL = "https://pixhub.top/v1"
 
 
 class ProviderConfigError(ValueError):
@@ -168,6 +169,116 @@ class GPTImageProvider:
             requested_count=requested_count,
             asset_mime_types=asset_mime_types,
         )
+
+
+class PixhubImageProvider:
+    """Synchronous OpenAI-compatible Pixhub image generation adapter."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str = DEFAULT_PIXHUB_BASE_URL,
+        model_name: str = "gpt-image-2.5",
+        response_format: str = "url",
+        quality: str = "low",
+        default_size: str = "1024x1024",
+        timeout_seconds: float = 180.0,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        if not api_key.strip():
+            raise ProviderConfigError("Pixhub API key is required")
+        if not base_url.strip():
+            raise ProviderConfigError("Pixhub endpoint is required")
+        if response_format not in {"url", "b64_json"}:
+            raise ProviderConfigError("Pixhub response format must be url or b64_json")
+        if not default_size.strip():
+            raise ProviderConfigError("Pixhub default size is required")
+        self._api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model_name = model_name
+        self.response_format = response_format
+        self.quality = quality
+        self.default_size = default_size
+        self._client = http_client or httpx.Client(timeout=timeout_seconds)
+        self._owns_client = http_client is None
+
+    @property
+    def provider_name(self) -> str:
+        return "pixhub"
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+
+    def build_payload(self, request: GenerationRequest) -> dict[str, Any]:
+        return {
+            "model": self.model_name,
+            "prompt": request.prompt,
+            "n": 1,
+            "size": self.default_size,
+            "quality": request.quality or self.quality,
+            "response_format": self.response_format,
+        }
+
+    def normalize_response(
+        self, response: dict[str, Any], *, latency_ms: int, requested_count: int = 1
+    ) -> GenerationResult:
+        request_id = response.get("id")
+        data = response.get("data")
+        if not isinstance(request_id, str) or not request_id:
+            raise ProviderResponseError("Pixhub request id is missing")
+        if not isinstance(data, list) or not data:
+            raise ProviderResponseError("Pixhub response data is missing")
+        asset_urls: list[str] = []
+        persistence: str | None = None
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            if isinstance(item.get("url"), str) and item["url"]:
+                asset_urls.append(item["url"])
+                persistence = "temporary_provider_url"
+            elif isinstance(item.get("b64_json"), str) and item["b64_json"]:
+                asset_urls.append(f"data:image/png;base64,{item['b64_json']}")
+                persistence = "temporary_base64"
+        if not asset_urls:
+            raise ProviderResponseError("Pixhub response contains no asset")
+        return GenerationResult(
+            provider_name=self.provider_name,
+            provider_request_id=request_id,
+            model_name=response.get("model") or self.model_name,
+            asset_urls=asset_urls,
+            latency_ms=latency_ms,
+            metadata_source="provider_response",
+            metadata={"asset_persistence": persistence},
+            requested_count=requested_count,
+        )
+
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        import time
+
+        started = time.monotonic()
+        try:
+            response = self._client.post(
+                f"{self.base_url}/images/generations", headers=self._headers(), json=self.build_payload(request)
+            )
+            response.raise_for_status()
+            body = response.json()
+        except httpx.HTTPStatusError as error:
+            raise ProviderResponseError(f"Pixhub request failed with HTTP {error.response.status_code}") from None
+        except (httpx.TimeoutException, httpx.TransportError) as error:
+            raise ProviderResponseError(f"Pixhub request failed: {self._redact(str(error))}") from None
+        if not isinstance(body, dict):
+            raise ProviderResponseError("Pixhub response is malformed")
+        return self.normalize_response(
+            body, latency_ms=int((time.monotonic() - started) * 1000), requested_count=request.output_count
+        )
+
+    def _redact(self, message: str) -> str:
+        return message.replace(self._api_key, "[REDACTED]")
+
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
 
 
 class ImageGenerationProvider(Protocol):
@@ -414,6 +525,7 @@ __all__ = [
     "GenerationRequest",
     "GenerationResult",
     "GPTImageProvider",
+    "PixhubImageProvider",
     "ImageGenerationProvider",
     "MaizitechImageProvider",
     "ProviderConfigError",
@@ -423,4 +535,5 @@ __all__ = [
     "ProviderError",
     "classify_provider_error",
     "DEFAULT_MAIZI_BASE_URL",
+    "DEFAULT_PIXHUB_BASE_URL",
 ]
