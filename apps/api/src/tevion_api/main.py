@@ -1,6 +1,7 @@
 import os
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
@@ -17,7 +18,7 @@ from .auth import (
 )
 from .cors import configure_cors
 from .db import get_db
-from .models import ImageVersion, User
+from .models import GenerationRun, ImageVersion, Project, Session, User
 from .provider import (
     DEFAULT_MAIZI_BASE_URL,
     DEFAULT_PIXHUB_BASE_URL,
@@ -93,6 +94,28 @@ def get_image_provider() -> ImageGenerationProvider:
         base_url=os.environ.get("MAIZI_BASE_URL", DEFAULT_MAIZI_BASE_URL),
         model_name=os.environ.get("MAIZI_MODEL", "gpt-image-2"),
     )
+
+
+@app.get("/api/v1/assets/{asset_key}")
+def read_asset(
+    asset_key: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> FileResponse:
+    image = db.scalar(
+        select(ImageVersion)
+        .join(GenerationRun, ImageVersion.run_id == GenerationRun.id)
+        .join(Session, GenerationRun.session_id == Session.id)
+        .join(Project, Session.project_id == Project.id)
+        .where(ImageVersion.asset_uri == f"tevion://assets/{asset_key}", Project.user_id == current_user.id)
+    )
+    if image is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    root = os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets")
+    path = os.path.join(root, asset_key)
+    if os.path.basename(path) != asset_key or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="asset not found")
+    return FileResponse(path, media_type=image.mime_type or "application/octet-stream")
 
 
 @app.get("/health", response_model=HealthResponse)
