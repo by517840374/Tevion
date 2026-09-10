@@ -118,6 +118,9 @@
           has(/尚未选择 selected parent/) && has(/function syncRefineControls\(\)/) &&
           has(/count\.value = '1'/) && has(/精修默认生成 1 张/) &&
           document.getElementById('countHint'));
+        record('Refine 明确本地上传需要后端接口，不虚构 upload API',
+          has(/refineUploadNote/) && has(/上传本地图片的后端接口尚未提供/) &&
+          !has(/FormData/) && !has(/\/upload/));
         record('Refine 创建任务保留 parent_version_id API body 契约',
           has(/mode: currentTask\.mode/) && has(/parent_version_id: currentTask\.parent_version_id/) &&
           has(/api\(['"]\/tasks['"]/));

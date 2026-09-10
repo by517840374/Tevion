@@ -457,10 +457,12 @@ function escapeHtml(s) {
 function renderRefineContext() {
   const context = $('refineContext');
   const status = $('refineParentStatus');
+  const uploadNote = $('refineUploadNote');
   if (!context || !status) return;
   const refine = document.querySelector('.mode.active')?.dataset.mode === 'refine';
   context.hidden = !refine;
   if (!refine) return;
+  if (uploadNote) uploadNote.textContent = '当前仅支持选择本次生成或项目历史中的候选图；上传本地图片的后端接口尚未提供。';
   status.innerHTML = chosenId
     ? '<strong>selected parent</strong>：' + escapeHtml(chosenId) + '（下一次生成将携带 parent_version_id）'
     : '<strong>尚未选择 selected parent</strong>：请先在 Explore 结果区选择一张候选图，才能进行图生图精修。';
