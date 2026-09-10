@@ -20,7 +20,42 @@
     </div>
   </header>
 
-  <main class="workspace">
+  <main id="landingView" class="entry-view" hidden>
+    <div class="entry-shell">
+      <div class="entry-kicker">TEVION / VISUAL AGENT</div>
+      <h1>把感觉说出来，<em>让 Agent 帮你找到。</em></h1>
+      <p class="entry-lede">从模糊灵感到可比较的视觉方向。Tevion 将你的意图拆解为主体、光影、镜头与色彩，陪你逐步收敛出真正想要的画面。</p>
+      <div class="entry-actions"><a class="primary-button" href="#login">进入工作台 <span aria-hidden="true">→</span></a><a class="secondary-button" href="#register">创建账号</a></div>
+      <div class="entry-proof"><span><strong>01</strong> 描述感觉</span><span><strong>02</strong> 比较方向</span><span><strong>03</strong> 共同精修</span></div>
+    </div>
+  </main>
+
+  <main id="authView" class="auth-view" hidden>
+    <section class="auth-card panel" aria-labelledby="authTitle">
+      <a class="back-link" href="#">← 返回 Tevion</a>
+      <div class="eyebrow">TEVION ACCOUNT</div>
+      <h1 id="authTitle">欢迎回来</h1>
+      <p id="authIntro" class="muted">登录后继续你的视觉探索。</p>
+      <form id="authForm" novalidate>
+        <label class="field-label" for="authEmail">邮箱</label>
+        <input id="authEmail" name="email" type="email" autocomplete="email" required aria-describedby="authEmailError">
+        <p id="authEmailError" class="field-error" role="alert"></p>
+        <label class="field-label" for="authPassword">密码</label>
+        <input id="authPassword" name="password" type="password" autocomplete="current-password" required minlength="8" aria-describedby="authPasswordError">
+        <p id="authPasswordError" class="field-error" role="alert"></p>
+        <label id="authConfirmLabel" class="field-label" for="authConfirm" hidden>确认密码</label>
+        <input id="authConfirm" name="confirm" type="password" autocomplete="new-password" minlength="8" hidden aria-describedby="authConfirmError">
+        <p id="authConfirmError" class="field-error" role="alert"></p>
+        <p id="authMessage" class="auth-message" role="status" aria-live="polite"></p>
+        <button id="authSubmit" class="primary-button auth-submit" type="submit">登录</button>
+      </form>
+      <p class="auth-switch"><span id="authSwitchText">还没有账号？</span> <a id="authSwitch" href="#register">创建账号</a></p>
+      <button id="oidcBtn" class="secondary-button auth-alt" type="button" hidden>使用企业 OIDC 登录</button>
+      <button id="devTokenBtn" class="text-button auth-dev" type="button">本地开发：使用 dev-token</button>
+    </section>
+  </main>
+
+  <main id="workbenchView" class="workspace" hidden>
     <aside class="sidebar panel">
       <div class="eyebrow">NEW SESSION</div>
       <h1>把感觉说出来，<br><em>让 Agent 帮你找到。</em></h1>
@@ -94,7 +129,7 @@
         <div class="metrics-grid" id="metricsGrid"></div>
       </div>
     </aside>
-  </main>
+</main>
 
   <div class="toast" id="toast" hidden></div>
   <script>

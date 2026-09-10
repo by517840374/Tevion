@@ -116,6 +116,20 @@
         record('结果展示 requested actual 数量与短缺解释',
           has(/requested_output_count/) && has(/actual_output_count/) && has(/output_completeness/) &&
           has(/output_shortfall/) && has(/请求.*实际|实际.*请求/));
+        record('产品入口路由覆盖 landing、login、register、workbench',
+          has(/function routeTo\(/) && has(/landing/) && has(/login/) && has(/register/) && has(/workbench/) &&
+          has(/location\.hash/));
+        record('注册登录表单使用真实 auth contract 且成功保存 token',
+          has(/\/auth\/register/) && has(/\/auth\/login/) && has(/access_token/) &&
+          has(/password/) && has(/setToken\(/) && has(/sessionStorage/) &&
+          !has(/localStorage\.(getItem|setItem|removeItem).*TOKEN_KEY/s));
+        record('认证错误提供重复账号与通用登录提示',
+          has(/账号已存在/) && has(/登录失败，请检查邮箱和密码/));
+        record('认证输入校验与键盘可访问性',
+          has(/required/) && has(/type="email"/) && has(/minLength/) && has(/aria-live/) && has(/aria-label/));
+        record('认证入口不持久化 password、hash 或 Authorization',
+          !has(/sessionStorage\.setItem\([^)]*password/i) && !has(/password_hash/i) &&
+          !has(/sessionStorage\.setItem\([^)]*Authorization/i));
       } catch (error) {
         record('可读取 app.js focused 契约', false);
       }
