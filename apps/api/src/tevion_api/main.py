@@ -18,7 +18,13 @@ from .auth import (
 from .cors import configure_cors
 from .db import get_db
 from .models import ImageVersion, User
-from .provider import DEFAULT_MAIZI_BASE_URL, MaizitechImageProvider
+from .provider import (
+    DEFAULT_MAIZI_BASE_URL,
+    DEFAULT_PIXHUB_BASE_URL,
+    ImageGenerationProvider,
+    MaizitechImageProvider,
+    PixhubImageProvider,
+)
 from .schemas import (
     AuthTokenResponse,
     AuthUserResponse,
@@ -57,8 +63,28 @@ app = FastAPI(title="Tevion Product API", version="0.1.0")
 configure_cors(app)
 
 
-def get_image_provider() -> MaizitechImageProvider:
+def get_image_provider() -> ImageGenerationProvider:
     """Build the real provider from environment; tests override this dependency."""
+    if os.environ.get("IMAGE_PROVIDER", "maizitech").lower() == "pixhub":
+        api_key = os.environ.get("PIXHUB_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=503, detail="image provider is not configured")
+        try:
+            timeout_seconds = float(os.environ.get("PIXHUB_TIMEOUT_SECONDS", "180"))
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail="image provider is not configured") from exc
+        try:
+            return PixhubImageProvider(
+                api_key=api_key,
+                base_url=os.environ.get("PIXHUB_BASE_URL", DEFAULT_PIXHUB_BASE_URL),
+                model_name=os.environ.get("PIXHUB_MODEL", "gpt-image-2.5"),
+                response_format=os.environ.get("PIXHUB_RESPONSE_FORMAT", "url"),
+                quality=os.environ.get("PIXHUB_QUALITY", "low"),
+                default_size=os.environ.get("PIXHUB_DEFAULT_SIZE", "1024x1024"),
+                timeout_seconds=timeout_seconds,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail="image provider is not configured") from exc
     api_key = os.environ.get("MAIZI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="image provider is not configured")
@@ -324,7 +350,7 @@ def generate_task(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     current_user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
-    provider: MaizitechImageProvider = Depends(get_image_provider),
+    provider: ImageGenerationProvider = Depends(get_image_provider),
 ) -> GenerateResponse:
     task = services.get_task_for_user(db, current_user.id, task_id)
     if task is None:
@@ -386,7 +412,7 @@ def retry_task(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     current_user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
-    provider: MaizitechImageProvider = Depends(get_image_provider),
+    provider: ImageGenerationProvider = Depends(get_image_provider),
 ) -> GenerateResponse:
     task = services.get_latest_task_for_user(db, current_user.id, task_id)
     if task is None:
@@ -501,7 +527,7 @@ def reconcile_generation(
     payload: ReconciliationRequest,
     current_user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
-    provider: MaizitechImageProvider = Depends(get_image_provider),
+    provider: ImageGenerationProvider = Depends(get_image_provider),
 ) -> GenerationRunResponse:
     task = services.get_generation_run_for_user(db, current_user.id, task_id, run_id)
     if task is None:
