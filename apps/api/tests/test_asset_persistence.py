@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from tevion_api.assets import AssetError, LocalAssetStore
+from tevion_api.main import _asset_public_url
 
 
 def test_persists_b64_image_as_long_lived_tevion_uri(tmp_path) -> None:
@@ -40,3 +41,8 @@ def test_download_rejects_private_ssrf_target(tmp_path) -> None:
 
     with pytest.raises(AssetError, match="private"):
         store.persist_url("http://127.0.0.1/image.png")
+
+
+def test_internal_asset_uri_is_exposed_only_through_owned_api_endpoint() -> None:
+    assert _asset_public_url("tevion://assets/abc.png") == "/api/v1/assets/abc.png"
+    assert _asset_public_url("https://provider.example/image.png") == "https://provider.example/image.png"

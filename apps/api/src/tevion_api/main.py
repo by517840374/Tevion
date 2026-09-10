@@ -64,6 +64,13 @@ app = FastAPI(title="Tevion Product API", version="0.1.0")
 configure_cors(app)
 
 
+def _asset_public_url(asset_uri: str) -> str:
+    prefix = "tevion://assets/"
+    if asset_uri.startswith(prefix):
+        return f"/api/v1/assets/{asset_uri[len(prefix) :]}"
+    return asset_uri
+
+
 def get_image_provider() -> ImageGenerationProvider:
     """Build the real provider from environment; tests override this dependency."""
     if os.environ.get("IMAGE_PROVIDER", "maizitech").lower() == "pixhub":
@@ -244,7 +251,7 @@ def list_session_versions(
         items=[
             ImageSummary(
                 id=image.id,
-                url=image.asset_uri,
+                url=_asset_public_url(image.asset_uri),
                 width=image.width,
                 height=image.height,
                 parent_image_id=image.parent_image_id,
@@ -416,7 +423,7 @@ def generate_task(
         images=[
             ImageSummary(
                 id=image.id,
-                url=image.asset_uri,
+                url=_asset_public_url(image.asset_uri),
                 width=image.width,
                 height=image.height,
                 parent_image_id=image.parent_image_id,
@@ -469,7 +476,7 @@ def retry_task(
         images=[
             ImageSummary(
                 id=image.id,
-                url=image.asset_uri,
+                url=_asset_public_url(image.asset_uri),
                 width=image.width,
                 height=image.height,
                 parent_image_id=image.parent_image_id,
