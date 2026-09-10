@@ -1,6 +1,6 @@
 import base64
 import binascii
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -271,6 +271,90 @@ class PixhubImageProvider:
             raise ProviderResponseError("Pixhub response is malformed")
         return self.normalize_response(
             body, latency_ms=int((time.monotonic() - started) * 1000), requested_count=request.output_count
+        )
+
+    @staticmethod
+    def _edit_filename(mime_type: str) -> str:
+        suffixes = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+        normalized = mime_type.split(";", 1)[0].strip().lower()
+        if normalized not in suffixes:
+            raise ProviderConfigError("unsupported parent image MIME type")
+        return f"parent.{suffixes[normalized]}"
+
+    def normalize_edit_response(
+        self,
+        response: dict[str, Any],
+        *,
+        latency_ms: int,
+        parent_image_id: str,
+        parent_run_id: str,
+        owner_id: str,
+    ) -> GenerationResult:
+        result = self.normalize_response(response, latency_ms=latency_ms, requested_count=1)
+        metadata = {
+            **(result.metadata or {}),
+            "operation": "image_to_image",
+            "parent_image_id": parent_image_id,
+            "parent_run_id": parent_run_id,
+            "owner_id": owner_id,
+        }
+        return replace(result, metadata=metadata, requested_count=1)
+
+    def edit_image(
+        self,
+        *,
+        prompt: str,
+        image: bytes,
+        mime_type: str,
+        parent_image_id: str,
+        parent_run_id: str,
+        owner_id: str,
+    ) -> GenerationResult:
+        """Edit exactly one owned parent asset through Pixhub's multipart endpoint.
+
+        Ownership and lineage identifiers are accepted as an explicit boundary
+        contract; the asset bytes are the only parent input sent to Pixhub.
+        Persistence and ImageVersion wiring remain outside this provider slice.
+        """
+        if not parent_image_id.strip():
+            raise ProviderConfigError("parent image id is required")
+        if not parent_run_id.strip():
+            raise ProviderConfigError("parent run id is required")
+        if not owner_id.strip():
+            raise ProviderConfigError("owner id is required")
+        if not image:
+            raise ProviderConfigError("parent image is required")
+        filename = self._edit_filename(mime_type)
+        normalized_mime = mime_type.split(";", 1)[0].strip().lower()
+        started = __import__("time").monotonic()
+        try:
+            response = self._client.post(
+                f"{self.base_url}/images/edits",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                data={
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "n": "1",
+                    "size": self.default_size,
+                    "quality": self.quality,
+                    "response_format": self.response_format,
+                },
+                files={"image": (filename, image, normalized_mime)},
+            )
+            response.raise_for_status()
+            body = response.json()
+        except httpx.HTTPStatusError as error:
+            raise ProviderResponseError(f"Pixhub edit request failed with HTTP {error.response.status_code}") from None
+        except (httpx.TimeoutException, httpx.TransportError) as error:
+            raise ProviderResponseError(f"Pixhub edit request failed: {self._redact(str(error))}") from None
+        if not isinstance(body, dict):
+            raise ProviderResponseError("Pixhub edit response is malformed")
+        return self.normalize_edit_response(
+            body,
+            latency_ms=int((__import__("time").monotonic() - started) * 1000),
+            parent_image_id=parent_image_id,
+            parent_run_id=parent_run_id,
+            owner_id=owner_id,
         )
 
     def _redact(self, message: str) -> str:
