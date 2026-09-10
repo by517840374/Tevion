@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
@@ -51,6 +51,7 @@ from .schemas import (
     ProjectListResponse,
     ProjectSummary,
     ReconciliationRequest,
+    ReferenceImageResponse,
     RegisterRequest,
     SessionListResponse,
     SessionSummary,
@@ -124,6 +125,41 @@ def read_asset(
     if os.path.basename(path) != asset_key or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="asset not found")
     return FileResponse(path, media_type=image.mime_type or "application/octet-stream")
+
+
+@app.post("/api/v1/projects/{project_id}/reference-images", response_model=ReferenceImageResponse, status_code=201)
+def upload_reference_image(
+    project_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ReferenceImageResponse:
+    data = file.file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="uploaded file exceeds maximum size")
+    try:
+        created = services.create_reference_image(
+            db,
+            user_id=current_user.id,
+            project_id=project_id,
+            data=data,
+            mime_type=file.content_type or "",
+        )
+    except services.ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except services.AssetError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    prefix = "tevion://assets/"
+    asset_key = created.image.asset_uri[len(prefix) :]
+    return ReferenceImageResponse(
+        id=created.image.id,
+        parent_version_id=created.image.id,
+        asset_key=asset_key,
+        url=f"/api/v1/assets/{asset_key}",
+        mime_type=created.image.mime_type or file.content_type or "application/octet-stream",
+        width=created.image.width,
+        height=created.image.height,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -49,6 +49,54 @@ class OwnedImageVersion:
     image: ImageVersion
 
 
+def create_reference_image(
+    db: OrmSession,
+    *,
+    user_id: str,
+    project_id: str,
+    data: bytes,
+    mime_type: str,
+    asset_store: LocalAssetStore | None = None,
+) -> OwnedImageVersion:
+    """Create an owned ImageVersion backed by a local upload."""
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+    if project is None:
+        raise ProjectNotFoundError("project not found")
+    store = asset_store or LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+    asset_uri = store.persist_upload(data, mime_type)
+    normalized_mime = mime_type.split(";", 1)[0].strip().lower()
+    session = Session(
+        project_id=project.id,
+        mode="explore",
+        raw_request="Uploaded reference image",
+        status="awaiting_selection",
+    )
+    db.add(session)
+    db.flush()
+    run = GenerationRun(
+        session_id=session.id,
+        user_id=user_id,
+        strategy_version="reference-upload",
+        provider_name="local",
+        model_name="local-upload",
+        status="completed",
+        completed_at=datetime.now(timezone.utc),
+        parameters_json={"source": "local_upload"},
+    )
+    db.add(run)
+    db.flush()
+    image = ImageVersion(
+        run_id=run.id,
+        asset_uri=asset_uri,
+        mime_type=normalized_mime,
+        metadata_json={"source": "local_upload", "filename": "redacted"},
+    )
+    db.add(image)
+    db.commit()
+    db.refresh(image)
+    return OwnedImageVersion(session=session, run=run, image=image)
+
+
 @dataclass(frozen=True)
 class TaskRuntimeProjection:
     task_id: str

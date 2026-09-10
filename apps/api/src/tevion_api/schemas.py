@@ -92,6 +92,16 @@ class ImageVersionListResponse(BaseModel):
     items: list[ImageSummary] = Field(default_factory=list)
 
 
+class ReferenceImageResponse(BaseModel):
+    id: str
+    parent_version_id: str
+    asset_key: str
+    url: str
+    mime_type: str
+    width: int | None = None
+    height: int | None = None
+
+
 class TaskDetail(BaseModel):
     task_id: str
     project_id: str
