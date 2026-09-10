@@ -76,6 +76,67 @@ function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
 function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
 function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
 
+/* ---------- 产品入口路由与账号认证 ---------- */
+let authMode = 'login';
+function routeName() {
+  const value = window.location.hash.replace(/^#/, '').toLowerCase();
+  return ['login', 'register', 'workbench'].includes(value) ? value : (getToken() ? 'workbench' : 'landing');
+}
+function routeTo(name) {
+  const route = ['landing', 'login', 'register', 'workbench'].includes(name) ? name : 'landing';
+  if (window.location.hash !== '#' + route) window.location.hash = route === 'landing' ? '' : route;
+  renderRoute(route);
+}
+function renderRoute(route = routeName()) {
+  $('landingView').hidden = route !== 'landing';
+  $('authView').hidden = !['login', 'register'].includes(route);
+  $('workbenchView').hidden = route !== 'workbench';
+  document.querySelector('.topbar-meta').textContent = route === 'workbench' ? '视觉探索工作台 / 实时后端联调模式' : '从意图到视觉方向';
+  if (route === 'workbench' && !getToken()) return routeTo('login');
+  if (['login', 'register'].includes(route)) setupAuthForm(route);
+  document.title = route === 'landing' ? 'Tevion — 从感觉到画面' : route === 'register' ? '注册 Tevion' : route === 'login' ? '登录 Tevion' : 'Tevion — Visual Agent Workbench';
+}
+function setupAuthForm(route) {
+  authMode = route;
+  const register = route === 'register';
+  $('authTitle').textContent = register ? '创建你的 Tevion' : '欢迎回来';
+  $('authIntro').textContent = register ? '建立账号，保存你的视觉探索与偏好。' : '登录后继续你的视觉探索。';
+  $('authSubmit').textContent = register ? '创建账号' : '登录';
+  $('authSwitchText').textContent = register ? '已经有账号？' : '还没有账号？';
+  $('authSwitch').textContent = register ? '立即登录' : '创建账号';
+  $('authSwitch').href = register ? '#login' : '#register';
+  $('authConfirmLabel').hidden = !register; $('authConfirm').hidden = !register; $('authConfirm').required = register;
+  $('authPassword').autocomplete = register ? 'new-password' : 'current-password';
+  $('authMessage').textContent = '';
+  ['authEmailError','authPasswordError','authConfirmError'].forEach(id => $(id).textContent = '');
+}
+function validateAuth(email, password, confirm) {
+  const errors = {};
+  if (!email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) errors.email = '请输入有效的邮箱地址。';
+  if (!password || password.length < 8) errors.password = '密码至少需要 8 个字符。';
+  if (authMode === 'register' && password !== confirm) errors.confirm = '两次输入的密码不一致。';
+  return errors;
+}
+async function submitAuth(event) {
+  event.preventDefault();
+  const email = $('authEmail').value.trim().toLowerCase(), password = $('authPassword').value, confirm = $('authConfirm').value;
+  const errors = validateAuth(email, password, confirm);
+  $('authEmailError').textContent = errors.email || ''; $('authPasswordError').textContent = errors.password || ''; $('authConfirmError').textContent = errors.confirm || '';
+  if (Object.keys(errors).length) return;
+  const submit = $('authSubmit'); submit.disabled = true; $('authMessage').textContent = authMode === 'register' ? '正在创建账号…' : '正在登录…';
+  try {
+    const data = await api('/auth/' + authMode, { method: 'POST', body: { email, password }, auth: false });
+    if (!data?.access_token) throw new Error('认证接口未返回有效凭证。');
+    setToken(data.access_token);
+    $('authMessage').textContent = authMode === 'register' ? '账号创建成功，正在进入工作台…' : '登录成功，正在进入工作台…';
+    $('authMessage').className = 'auth-message success';
+    window.setTimeout(() => routeTo('workbench'), 120);
+  } catch (err) {
+    $('authMessage').className = 'auth-message';
+    $('authMessage').textContent = authMode === 'register' && err.status === 409 ? '该邮箱账号已存在，请直接登录。' : authMode === 'login' ? '登录失败，请检查邮箱和密码。' : '注册失败，请检查输入后重试。';
+  } finally { submit.disabled = false; }
+}
+
 function listPayload(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.items)) return data.items;
@@ -345,6 +406,7 @@ async function handleLogin() {
     setToken(data.access_token);
     toast('演示登录成功，可以开始生成了。', 'success');
     await loadProjectHistory();
+    routeTo('workbench');
   } catch (err) {
     toast('登录失败：' + err.message, 'error', 8000);
   } finally {
@@ -885,8 +947,12 @@ document.querySelectorAll('.mode').forEach(mode =>
     renderRefineContext();
   }));
 $('generate').addEventListener('click', () => handleGenerate());
-$('loginBtn').addEventListener('click', handleLogin);
+$('loginBtn').addEventListener('click', () => routeTo('login'));
 $('logoutBtn').addEventListener('click', handleLogout);
+$('authForm')?.addEventListener('submit', submitAuth);
+$('devTokenBtn')?.addEventListener('click', handleLogin);
+$('oidcBtn')?.addEventListener('click', async () => { if (!(await startOidcLogin())) $('authMessage').textContent = 'OIDC 尚未配置，请使用邮箱登录或本地 dev-token。'; });
+window.addEventListener('hashchange', () => renderRoute());
 $('historyProject')?.addEventListener('change', event => loadHistorySessions(event.target.value));
 $('historySession')?.addEventListener('change', event => loadHistoryVersions(event.target.value));
 $('results').addEventListener('click', e => {
@@ -909,3 +975,4 @@ handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, '
 });
 refreshLoginUI();
 renderRefineContext();
+renderRoute();
