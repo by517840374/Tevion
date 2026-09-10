@@ -1,3 +1,5 @@
+import base64
+import binascii
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
@@ -68,6 +70,7 @@ class GenerationResult:
     actual_count: int | None = None
     completeness: str | None = None
     shortfall: int | None = None
+    asset_mime_types: list[str] | None = None
 
     def __post_init__(self) -> None:
         actual_count = len(self.asset_urls) if self.actual_count is None else self.actual_count
@@ -124,9 +127,25 @@ class GPTImageProvider:
         if not isinstance(data, list) or not data:
             raise ProviderResponseError("provider response data is missing")
 
-        asset_urls = [
-            item["url"] for item in data if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"]
-        ]
+        asset_urls: list[str] = []
+        asset_mime_types: list[str] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if isinstance(url, str) and url:
+                asset_urls.append(url)
+                asset_mime_types.append("image/png")
+                continue
+            encoded = item.get("b64_json")
+            if not isinstance(encoded, str) or not encoded:
+                continue
+            try:
+                base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ProviderResponseError("provider base64 asset is invalid") from exc
+            asset_urls.append(f"data:image/png;base64,{encoded}")
+            asset_mime_types.append("image/png")
         if not asset_urls:
             raise ProviderResponseError("provider response contains no asset URL")
 
@@ -147,6 +166,7 @@ class GPTImageProvider:
             if response.get("strategy_version")
             else None,
             requested_count=requested_count,
+            asset_mime_types=asset_mime_types,
         )
 
 
