@@ -38,6 +38,11 @@ class CreateTaskRequest(BaseModel):
     aspect_ratio: str = Field(default="4:5", pattern=r"^\d+:\d+$")
 
 
+class CreateProjectRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+
+
 class TaskSummary(BaseModel):
     task_id: str
     run_id: str

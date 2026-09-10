@@ -454,6 +454,14 @@ def list_projects_for_user(db: OrmSession, user_id: str) -> list[Project]:
     return list(db.scalars(select(Project).where(Project.user_id == user_id).order_by(Project.created_at, Project.id)))
 
 
+def create_project(db: OrmSession, user: User, *, name: str, description: str | None = None) -> Project:
+    project = Project(user_id=user.id, name=name, description=description)
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
 def list_sessions_for_project(db: OrmSession, user_id: str, project_id: str) -> list[Session] | None:
     project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
     if project is None:

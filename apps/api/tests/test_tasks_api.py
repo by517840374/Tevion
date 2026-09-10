@@ -114,6 +114,56 @@ def test_owner_can_list_project_summaries_without_other_users_projects(db_overri
     assert other_project_id not in {item["id"] for item in response.json()["items"]}
 
 
+def test_owner_can_create_project_and_read_it_back_from_list(db_override: None) -> None:
+    response = client.post(
+        "/api/v1/projects",
+        json={"name": "新肖像项目", "description": "用于测试的项目"},
+        headers=_auth("sub_new_project_owner"),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"].startswith("project_")
+    assert body["name"] == "新肖像项目"
+    assert body["description"] == "用于测试的项目"
+
+    listed = client.get("/api/v1/projects", headers=_auth("sub_new_project_owner"))
+    assert listed.status_code == 200
+    assert body in listed.json()["items"]
+
+
+def test_project_creation_is_owned_and_other_users_cannot_read_it(db_override: None) -> None:
+    response = client.post(
+        "/api/v1/projects",
+        json={"name": "私有项目"},
+        headers=_auth("sub_private_project_owner"),
+    )
+    assert response.status_code == 201
+    project = response.json()
+
+    intruder_projects = client.get("/api/v1/projects", headers=_auth("sub_private_project_intruder"))
+    assert intruder_projects.status_code == 200
+    assert project not in intruder_projects.json()["items"]
+
+
+def test_create_task_without_project_id_still_uses_default_project(db_override: None) -> None:
+    response = client.post(
+        "/api/v1/tasks",
+        json={"request": "默认项目兼容性", "mode": "explore", "output_count": 2},
+        headers=_auth("sub_default_project_compatibility"),
+    )
+    assert response.status_code == 202
+
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        stored = session.get(m.Session, response.json()["task_id"])
+        assert stored is not None
+        project = session.get(m.Project, stored.project_id)
+        assert project is not None
+        assert project.name == "默认项目"
+    engine.dispose()
+
+
 def test_project_sessions_and_session_versions_are_owned_and_include_lineage(db_override: None) -> None:
     engine = create_engine(TEST_DB_URL)
     with OrmSession(engine) as session:
