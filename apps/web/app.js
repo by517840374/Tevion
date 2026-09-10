@@ -462,7 +462,18 @@ function renderRefineContext() {
   if (!refine) return;
   status.innerHTML = chosenId
     ? '<strong>selected parent</strong>：' + escapeHtml(chosenId) + '（下一次生成将携带 parent_version_id）'
-    : '尚未选择候选图。请先回到 Explore 结果区选择一张候选。';
+    : '<strong>尚未选择 selected parent</strong>：请先在 Explore 结果区选择一张候选图，才能进行图生图精修。';
+}
+
+function syncRefineControls() {
+  const refine = document.querySelector('.mode.active')?.dataset.mode === 'refine';
+  const count = $('count');
+  const hint = $('countHint');
+  if (refine && count) count.value = '1';
+  if (hint) hint.textContent = refine
+    ? '精修默认生成 1 张，便于确认这次修改；仍可按需调整。'
+    : '探索模式可比较多张候选；切换到精修会默认 1 张。';
+  renderRefineContext();
 }
 
 function renderSelectedParent() {
@@ -944,7 +955,7 @@ document.querySelectorAll('.mode').forEach(mode =>
   mode.addEventListener('click', () => {
     document.querySelectorAll('.mode').forEach(m => m.classList.remove('active'));
     mode.classList.add('active');
-    renderRefineContext();
+    syncRefineControls();
   }));
 $('generate').addEventListener('click', () => handleGenerate());
 $('loginBtn').addEventListener('click', () => routeTo('login'));
@@ -975,4 +986,5 @@ handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, '
 });
 refreshLoginUI();
 renderRefineContext();
+syncRefineControls();
 renderRoute();
