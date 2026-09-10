@@ -14,9 +14,7 @@ from tevion_api.auth import DEFAULT_AUDIENCE
 from tevion_api.db import Base, get_db
 from tevion_api.main import app
 
-TEST_DB_URL = os.environ.get(
-    "TEVION_TEST_DB_URL", "postgresql+psycopg://tevion:tevion_dev@localhost:5432/tevion_test"
-)
+TEST_DB_URL = os.environ.get("TEVION_TEST_DB_URL", "postgresql+psycopg://tevion:tevion_dev@localhost:5432/tevion_test")
 TEST_SECRET = "reference-upload-test-secret-0123456789"
 client = TestClient(app)
 

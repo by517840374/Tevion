@@ -97,9 +97,7 @@ def test_reconcile_pending_run_queries_by_id_and_finalizes_idempotently(db):
     provider = PendingProvider()
     services.execute_generation(db, task, provider)
 
-    first = services.reconcile_generation(
-        db, task, user_id=task.run.user_id or "", provider=provider, reason="恢复"
-    )
+    first = services.reconcile_generation(db, task, user_id=task.run.user_id or "", provider=provider, reason="恢复")
     second = services.reconcile_generation(
         db, task, user_id=task.run.user_id or "", provider=provider, reason="重复恢复"
     )

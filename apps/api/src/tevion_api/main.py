@@ -352,7 +352,7 @@ def _image_summaries(db: OrmSession, run_id: str) -> list[ImageSummary]:
     return [
         ImageSummary(
             id=image.id,
-            url=image.asset_uri,
+            url=_asset_public_url(image.asset_uri),
             width=image.width,
             height=image.height,
             parent_image_id=image.parent_image_id,
