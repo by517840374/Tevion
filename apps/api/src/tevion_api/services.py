@@ -963,11 +963,23 @@ def execute_generation(
                 run.provider_request_id = operation.provider_request_id
                 db.commit()
             if operation.status is ProviderOperationStatus.PENDING:
-                operation = provider.poll(operation.provider_request_id)  # type: ignore[attr-defined]
+                run.reconciliation_required = True
+                run.reconciliation_reason = "provider task pending; recovery required"
+                if session.status == "created":
+                    transition_session_status(session, "generating")
+                db.commit()
+                return []
             if operation.status is ProviderOperationStatus.UNKNOWN:
                 transition_generation_status(run, "unknown")
                 run.error_code = operation.error_code or "provider_unknown"
                 run.error_message = "provider request outcome is unknown; recovery required"
+                db.commit()
+                return []
+            if operation.status is ProviderOperationStatus.VIOLATION:
+                transition_generation_status(run, "needs_user_review")
+                run.reconciliation_required = False
+                run.error_code = operation.error_code or "provider_violation"
+                run.error_message = operation.error_message or "provider rejected the request"
                 db.commit()
                 return []
             if operation.status is ProviderOperationStatus.FAILED:
@@ -1111,6 +1123,24 @@ def reconcile_generation(
         db.commit()
         return task
 
+    if operation.status is ProviderOperationStatus.VIOLATION:
+        transition_generation_status(run, "needs_user_review")
+        run.reconciliation_required = False
+        run.error_code = operation.error_code or "provider_violation"
+        run.error_message = (operation.error_message or "provider rejected the request")[:2000]
+        run.reconciliation_reason = f"{safe_reason}; evidence=provider_violation"
+        db.commit()
+        return task
+
+    if operation.status is ProviderOperationStatus.PENDING:
+        run.reconciliation_required = True
+        run.error_code = None
+        run.error_message = None
+        run.reconciliation_reason = f"{safe_reason}; evidence=pending"
+        run.last_polled_at = datetime.now(timezone.utc)
+        db.commit()
+        return task
+
     result = operation.result
     if operation.status is not ProviderOperationStatus.COMPLETED or result is None:
         transition_generation_status(run, "unknown")
@@ -1121,7 +1151,7 @@ def reconcile_generation(
         db.commit()
         return task
 
-    if result.provider_request_id != provider_request_id or not result.asset_urls or result.cost is None:
+    if result.provider_request_id != provider_request_id or not result.asset_urls:
         transition_generation_status(run, "unknown")
         run.reconciliation_required = True
         run.error_code = "provider_evidence_invalid"
