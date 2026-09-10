@@ -112,7 +112,7 @@ function setupAuthForm(route) {
 }
 function validateAuth(email, password, confirm) {
   const errors = {};
-  if (!email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) errors.email = '请输入有效的邮箱地址。';
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = '请输入有效的邮箱地址。';
   if (!password || password.length < 8) errors.password = '密码至少需要 8 个字符。';
   if (authMode === 'register' && password !== confirm) errors.confirm = '两次输入的密码不一致。';
   return errors;
