@@ -432,6 +432,7 @@ function handleLogout() {
   renderHistoryOptions($('historySession'), [], '暂无会话');
   renderHistoryVersions([]);
   toast('已退出演示登录。', 'info');
+  routeTo('landing');
 }
 
 /* ---------- 中间列状态 ---------- */
