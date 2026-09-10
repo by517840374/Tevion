@@ -515,6 +515,12 @@ function renderLoading(stepIdx, mainText, subText) {
   r.setAttribute('aria-live', 'polite');
   r.setAttribute('aria-busy', 'true');
   const steps = ['创建任务', '生成候选'];
+  const count = Math.max(1, Number(currentTask?.output_count) || 1);
+  const placeholders = stepIdx === 1
+    ? '<div class="candidate-grid generation-placeholders" aria-label="真实生成结果等待区">' +
+      Array.from({ length: count }, (_, i) => '<article class="candidate candidate-placeholder" data-generation-placeholder="true" aria-label="候选 ' + (i + 1) + ' 正在等待真实图片"><div class="img-wrap placeholder-wrap" style="aspect-ratio:4/5;background:linear-gradient(110deg,#1c211e 30%,#303a31 45%,#1c211e 60%);background-size:200% 100%;animation:placeholder-shimmer 2.4s ease-in-out infinite"><div class="placeholder-label">候选 ' + String(i + 1).padStart(2, '0') + '<br><span>等待真实图片</span></div></div><div class="candidate-meta"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span><span class="muted">后端返回后显示</span></div></article>').join('') +
+      '</div>'
+    : '';
   r.innerHTML =
     '<div class="loading-block">' +
       '<div class="spinner"></div>' +
@@ -523,7 +529,7 @@ function renderLoading(stepIdx, mainText, subText) {
       '<div class="gen-steps">' +
         steps.map((s, i) => '<span class="step ' + (i < stepIdx ? 'done' : i === stepIdx ? 'active' : '') + '">' + (i < stepIdx ? '✓ ' : '') + s + '</span>').join('') +
       '</div>' +
-    '</div>';
+    '</div>' + placeholders;
 }
 
 function startElapsed() {
