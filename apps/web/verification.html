@@ -22,6 +22,7 @@
     <div id="memoryStatus"></div><div id="memoryList"></div>
     <div id="authChip"></div><p id="loginHint"></p><select id="ratio"><option>4:5</option><option>1:1</option><option>9:16</option><option>3:4</option><option>2:3</option><option>3:2</option><option>16:9</option><option>21:9</option><option>5:4</option><option>4:3</option><option>2:1</option><option>1:2</option><option>1:3</option></select><p id="ratioHint">尺寸</p><div id="results"></div>
     <div id="historyPanel"><p id="historyStatus"></p><select id="historyProject" class="history-select"></select><select id="historySession" class="history-select"></select><div id="historyVersions"></div></div>
+    <div class="mode-switch"><button class="mode active" data-mode="explore">探索</button><button class="mode" data-mode="refine">精修</button></div><div id="refineContext" hidden><p id="refineParentStatus"></p></div><select id="count"><option value="4">4 张</option><option value="2">2 张</option><option value="1">1 张</option></select><p id="countHint"></p>
     <section id="metricsSummary"><p id="metricsStatus"></p><div id="metricsGrid"></div></section>
   </div>
   <script src="app.js"></script>
@@ -101,6 +102,10 @@
         record('切换 Refine 显示 parent 与保留项/修改项',
           has(/function renderRefineContext\(\)/) && has(/refineContext/) && has(/refineParentStatus/) &&
           has(/保留/) && has(/修改/) && has(/parent_version_id/));
+        record('Refine 无 parent 时给出图生图入口提示并默认 1 张',
+          has(/尚未选择 selected parent/) && has(/function syncRefineControls\(\)/) &&
+          has(/count\.value = '1'/) && has(/精修默认生成 1 张/) &&
+          document.getElementById('countHint'));
         record('Refine 创建任务保留 parent_version_id API body 契约',
           has(/mode: currentTask\.mode/) && has(/parent_version_id: currentTask\.parent_version_id/) &&
           has(/api\(['"]\/tasks['"]/));

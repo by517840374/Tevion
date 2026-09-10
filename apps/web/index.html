@@ -77,7 +77,7 @@
       </div>
       <div class="form-grid">
         <div><label class="field-label">比例</label><select id="ratio" aria-describedby="ratioHint"><option value="4:5">4:5 人像 · 1024×1280</option><option value="1:1">1:1 方形 · 1024×1024</option><option value="9:16">9:16 竖屏 · 1024×1792</option><option value="3:4">3:4 人像 · 768×1024</option><option value="2:3">2:3 人像 · 683×1024</option><option value="3:2">3:2 横图 · 1024×683</option><option value="16:9">16:9 横屏 · 1024×576</option><option value="21:9">21:9 超宽 · 1024×439</option><option value="5:4">5:4 横图 · 1024×819</option><option value="4:3">4:3 横图 · 1024×768</option><option value="2:1">2:1 横幅 · 1024×512</option><option value="1:2">1:2 竖幅 · 512×1024</option><option value="1:3">1:3 长竖幅 · 341×1024</option></select><p class="field-hint" id="ratioHint">尺寸会随比例传给生成任务，便于预览构图。</p></div>
-        <div><label class="field-label">候选数量</label><select id="count"><option value="4">4 张</option><option value="2">2 张</option></select></div>
+        <div><label class="field-label" for="count">候选数量</label><select id="count" aria-describedby="countHint"><option value="4">4 张</option><option value="2">2 张</option><option value="1">1 张</option></select><p class="field-hint" id="countHint">探索模式可比较多张候选；切换到精修会默认 1 张。</p></div>
       </div>
       <button class="primary-button" id="generate" aria-describedby="loginHint">生成视觉方案 <span aria-hidden="true">→</span></button>
       <p class="privacy-note" id="loginHint">未登录：生成前请先完成「演示登录」。</p>
