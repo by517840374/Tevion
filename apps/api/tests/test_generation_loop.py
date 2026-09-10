@@ -2,6 +2,7 @@ import os
 import time
 from collections.abc import Generator
 
+import httpx
 import jwt
 import pytest
 from fastapi.testclient import TestClient
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from tevion_api import models as m
 from tevion_api import services
-from tevion_api.assets import LocalAssetStore
+from tevion_api.assets import AssetError, LocalAssetStore
 from tevion_api.auth import DEFAULT_AUDIENCE
 from tevion_api.db import Base, get_db
 from tevion_api.main import app, get_image_provider
@@ -377,6 +378,118 @@ def test_refine_generation_preserves_parent_image_lineage(db_override: None) -> 
         assert child_run.parent_run_id == parent_run_id
         children = session.scalars(select(m.ImageVersion).where(m.ImageVersion.run_id == child_run.id)).all()
         assert children and all(image.parent_image_id == parent_image_id for image in children)
+    engine.dispose()
+
+
+def test_refine_generation_downloads_historical_https_parent_before_maizi_edit(
+    db_override: None, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent_task_id = _create_task(sub="historical-refine-owner")
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        parent_run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == parent_task_id))
+        assert parent_run is not None
+        parent_image = m.ImageVersion(
+            run_id=parent_run.id,
+            asset_uri="https://history.example/parent.png",
+            mime_type=None,
+        )
+        session.add(parent_image)
+        session.commit()
+        parent_image_id = parent_image.id
+    engine.dispose()
+
+    class MaiziEditDouble:
+        def __init__(self) -> None:
+            self.calls: list[tuple[bytes, str, str, str, str]] = []
+
+        def generate(self, request: GenerationRequest) -> GenerationResult:
+            raise AssertionError("refine must use edit_image")
+
+        def edit_image(self, **kwargs) -> GenerationResult:
+            self.calls.append(
+                (
+                    kwargs["image"],
+                    kwargs["mime_type"],
+                    kwargs["parent_image_id"],
+                    kwargs["parent_run_id"],
+                    kwargs["owner_id"],
+                )
+            )
+            return GenerationResult(
+                provider_name="maizitech",
+                provider_request_id="maizi-refine-1",
+                model_name="gpt-image-2",
+                asset_urls=["https://cdn.example.test/refined.png"],
+                latency_ms=1,
+                metadata_source="provider_response",
+            )
+
+    provider = MaiziEditDouble()
+    monkeypatch.setattr(LocalAssetStore, "_reject_private_host", staticmethod(lambda hostname: None))
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers={"content-type": "image/png"}, content=b"historical-parent")
+        ),
+        follow_redirects=False,
+    )
+    store = LocalAssetStore(tmp_path, http_client=client)
+    with OrmSession(create_engine(TEST_DB_URL)) as session:
+        task = services.get_task_for_user(session, "historical-refine-owner", parent_task_id)
+        if task is None:
+            user = session.scalar(select(m.User).where(m.User.provider_subject == "historical-refine-owner"))
+            assert user is not None
+            task = services.get_task_for_user(session, user.id, parent_task_id)
+        assert task is not None
+        # Build the child task through the same ownership/project path as the API.
+        user = session.scalar(select(m.User).where(m.User.provider_subject == "historical-refine-owner"))
+        assert user is not None
+        child = services.create_task(
+            session,
+            user,
+            request="保留主体，精修背景",
+            mode="refine",
+            parent_version_id=parent_image_id,
+            project_id=task.session.project_id,
+        )
+        expected_parent_run_id = task.run.id
+        expected_owner_id = user.id
+        images = services.execute_generation(session, child, provider, asset_store=store)
+
+    assert provider.calls == [
+        (b"historical-parent", "image/png", parent_image_id, expected_parent_run_id, expected_owner_id)
+    ]
+    assert images[0].parent_image_id == parent_image_id
+
+
+def test_refine_historical_download_failure_is_recorded_on_run(db_override: None, tmp_path) -> None:
+    parent_task_id = _create_task(sub="historical-refine-failure")
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        parent_run = session.scalar(select(m.GenerationRun).where(m.GenerationRun.session_id == parent_task_id))
+        assert parent_run is not None
+        parent_image = m.ImageVersion(run_id=parent_run.id, asset_uri="https://127.0.0.1/blocked.png")
+        session.add(parent_image)
+        session.commit()
+        user = session.scalar(select(m.User).where(m.User.provider_subject == "historical-refine-failure"))
+        assert user is not None
+        child = services.create_task(
+            session, user, request="精修", mode="refine", parent_version_id=parent_image.id, project_id=None
+        )
+
+        class FailedEditProvider:
+            def generate(self, request: GenerationRequest) -> GenerationResult:
+                raise AssertionError("provider must not be called")
+
+            def edit_image(self, **kwargs) -> GenerationResult:
+                raise AssertionError("download must fail before edit")
+
+        with pytest.raises(AssetError, match="private"):
+            services.execute_generation(session, child, FailedEditProvider(), asset_store=LocalAssetStore(tmp_path))
+        session.refresh(child.run)
+        assert child.run.status == "failed"
+        assert child.run.error_code == "internal"
+        assert "private" in (child.run.error_message or "")
     engine.dispose()
 
 

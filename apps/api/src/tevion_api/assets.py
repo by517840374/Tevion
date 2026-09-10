@@ -78,6 +78,11 @@ class LocalAssetStore:
         return f"tevion://assets/{key}"
 
     def persist_url(self, url: str) -> str:
+        data, mime_type = self.read_source(url)
+        return self.persist_bytes(data, mime_type)
+
+    def read_source(self, url: str) -> tuple[bytes, str]:
+        """Download one historical HTTP(S) asset with the store's safety checks."""
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise AssetError("asset URL must use HTTP(S)")
@@ -93,7 +98,12 @@ class LocalAssetStore:
         mime_type = response.headers.get("content-type", "").split(";", 1)[0]
         if len(response.content) > self.max_bytes:
             raise AssetError("asset exceeds maximum size")
-        return self.persist_bytes(response.content, mime_type)
+        normalized_mime = mime_type.strip().lower()
+        if normalized_mime not in ALLOWED_MIME_TYPES:
+            raise AssetError("unsupported MIME type")
+        if not response.content:
+            raise AssetError("asset is empty")
+        return response.content, normalized_mime
 
     def persist_source(self, value: str, mime_type: str | None = None) -> str:
         if value.startswith("data:"):

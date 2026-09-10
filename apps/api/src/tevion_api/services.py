@@ -885,10 +885,15 @@ def execute_generation(
                 raise AssetError("parent asset not found")
             if asset_store is None:
                 asset_store = LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+            if parent.asset_uri.startswith(("http://", "https://")):
+                parent_bytes, parent_mime_type = asset_store.read_source(parent.asset_uri)
+            else:
+                parent_bytes = asset_store.read(parent.asset_uri)
+                parent_mime_type = parent.mime_type or "image/png"
             result = provider.edit_image(  # type: ignore[attr-defined]
                 prompt=request.prompt,
-                image=asset_store.read(parent.asset_uri),
-                mime_type=parent.mime_type or "image/png",
+                image=parent_bytes,
+                mime_type=parent_mime_type,
                 parent_image_id=parent.id,
                 parent_run_id=run.parent_run_id or parent.run_id,
                 owner_id=run.user_id or "",
