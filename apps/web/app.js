@@ -292,7 +292,6 @@ async function createProject(event) {
     await loadProjects();
     setProjectId(project.id); $('projectSelect').value = project.id; $('historyProject').value = project.id;
     message.textContent = '项目已创建并设为当前项目。'; toast('项目创建成功。', 'success');
-    routeTo('workbench');
   } catch (err) { message.textContent = '创建失败：' + err.message; }
   finally { button.disabled = false; }
 }

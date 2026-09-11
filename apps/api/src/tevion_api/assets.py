@@ -176,10 +176,7 @@ class ObjectStorageAssetStore(LocalAssetStore):
         if not api_key.strip():
             raise ValueError("object storage API key is required")
         super().__init__("/tmp/tevion-assets", max_bytes=max_bytes, timeout=timeout, http_client=http_client)
-        self.upload_url = upload_url
-        self.presign_url = presign_url
-        self.api_key = api_key
-        self.folder = folder
+        self.upload_url, self.presign_url, self.api_key, self.folder = upload_url, presign_url, api_key, folder
 
     def persist_bytes(self, data: bytes, mime_type: str) -> str:
         normalized = mime_type.split(";", 1)[0].strip().lower()
@@ -210,10 +207,7 @@ class ObjectStorageAssetStore(LocalAssetStore):
         _, key = self._parse_uri(uri)
         try:
             response = self._client.get(
-                self.presign_url,
-                params={"key": key},
-                headers={"X-API-Key": self.api_key},
-                timeout=self.timeout,
+                self.presign_url, params={"key": key}, headers={"X-API-Key": self.api_key}, timeout=self.timeout
             )
             response.raise_for_status()
             payload = response.json()
@@ -234,8 +228,7 @@ class ObjectStorageAssetStore(LocalAssetStore):
     def _parse_uri(uri: str) -> tuple[str, str]:
         if not uri.startswith("s3://"):
             raise AssetError("unsupported object storage URI")
-        value = uri[5:]
-        bucket, separator, key = value.partition("/")
+        bucket, separator, key = uri[5:].partition("/")
         if not separator or not bucket or not key or ".." in key.split("/"):
             raise AssetError("invalid object storage URI")
         return bucket, key
@@ -252,15 +245,12 @@ def _matches_image_signature(data: bytes, mime_type: str) -> bool:
 
 
 def build_asset_store() -> LocalAssetStore:
-    """Select remote object storage when configured, otherwise keep local dev storage."""
     api_key = os.environ.get("TEVION_STORAGE_API_KEY", "").strip()
     if not api_key:
         return LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
-    upload_url = os.environ.get("TEVION_STORAGE_UPLOAD_URL", "https://ysqvr.com/api/storage/upload")
-    presign_url = os.environ.get("TEVION_STORAGE_PRESIGN_URL", "https://ysqvr.com/api/storage/presign")
     return ObjectStorageAssetStore(
-        upload_url=upload_url,
-        presign_url=presign_url,
+        upload_url=os.environ.get("TEVION_STORAGE_UPLOAD_URL", "https://ysqvr.com/api/storage/upload"),
+        presign_url=os.environ.get("TEVION_STORAGE_PRESIGN_URL", "https://ysqvr.com/api/storage/presign"),
         api_key=api_key,
         folder=os.environ.get("TEVION_STORAGE_FOLDER", "images"),
     )
