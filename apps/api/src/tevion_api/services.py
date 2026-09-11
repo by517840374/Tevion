@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import statistics
 import uuid
 from dataclasses import dataclass, replace
@@ -11,7 +10,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
-from .assets import AssetError, LocalAssetStore
+from .assets import AssetError, LocalAssetStore, build_asset_store
 from .execution_jobs import enqueue_lifecycle_jobs
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
 from .models import (
@@ -63,7 +62,7 @@ def create_reference_image(
     project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
     if project is None:
         raise ProjectNotFoundError("project not found")
-    store = asset_store or LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+    store = asset_store or build_asset_store()
     asset_uri = store.persist_upload(data, mime_type)
     normalized_mime = mime_type.split(";", 1)[0].strip().lower()
     session = Session(
@@ -963,7 +962,7 @@ def execute_generation(
             if parent is None:
                 raise AssetError("parent asset not found")
             if asset_store is None:
-                asset_store = LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+                asset_store = build_asset_store()
             if parent.asset_uri.startswith(("http://", "https://")):
                 parent_bytes, parent_mime_type = asset_store.read_source(parent.asset_uri)
             else:
@@ -1057,7 +1056,7 @@ def execute_generation(
     metadata["metadata_source"] = result.metadata_source
     width, height = _parse_pixel_size(metadata.get("size"))
     if asset_store is None and result.provider_name == "pixhub":
-        asset_store = LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+        asset_store = build_asset_store()
     for source, mime_type in zip(
         result.asset_urls,
         result.asset_mime_types or ["image/png"] * len(result.asset_urls),
@@ -1227,7 +1226,7 @@ def reconcile_generation(
         )
         width, height = _parse_pixel_size(metadata.get("size"))
         if asset_store is None:
-            asset_store = LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+            asset_store = build_asset_store()
         for source, mime_type in zip(
             result.asset_urls,
             result.asset_mime_types or ["image/png"] * len(result.asset_urls),

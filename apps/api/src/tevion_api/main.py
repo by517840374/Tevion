@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from . import services
+from .assets import build_asset_store
 from .auth import (
     LOCAL_AUTH_PROVIDER,
     create_dev_token,
@@ -72,7 +73,21 @@ def _asset_public_url(asset_uri: str) -> str:
     prefix = "tevion://assets/"
     if asset_uri.startswith(prefix):
         return f"/api/v1/assets/{asset_uri[len(prefix) :]}"
+    if asset_uri.startswith("s3://") and os.environ.get("TEVION_STORAGE_API_KEY"):
+        store = build_asset_store()
+        try:
+            return store.public_url(asset_uri)
+        finally:
+            store.close()
     return asset_uri
+
+
+def _asset_key(asset_uri: str) -> str:
+    if asset_uri.startswith("tevion://assets/"):
+        return asset_uri[len("tevion://assets/") :]
+    if asset_uri.startswith("s3://"):
+        return asset_uri[len("s3://") :]
+    return asset_uri.rsplit("/", 1)[-1]
 
 
 def get_image_provider() -> ImageGenerationProvider:
@@ -151,13 +166,12 @@ def upload_reference_image(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except services.AssetError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
-    prefix = "tevion://assets/"
-    asset_key = created.image.asset_uri[len(prefix) :]
+    asset_key = _asset_key(created.image.asset_uri)
     return ReferenceImageResponse(
         id=created.image.id,
         parent_version_id=created.image.id,
         asset_key=asset_key,
-        url=f"/api/v1/assets/{asset_key}",
+        url=_asset_public_url(created.image.asset_uri),
         mime_type=created.image.mime_type or file.content_type or "application/octet-stream",
         width=created.image.width,
         height=created.image.height,

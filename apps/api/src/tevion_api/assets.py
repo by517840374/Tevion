@@ -157,6 +157,90 @@ class LocalAssetStore:
             self._client.close()
 
 
+class ObjectStorageAssetStore(LocalAssetStore):
+    """Persist validated images through the configured ysqvr object-storage API."""
+
+    def __init__(
+        self,
+        *,
+        upload_url: str,
+        presign_url: str,
+        api_key: str,
+        folder: str = "images",
+        max_bytes: int = 10 * 1024 * 1024,
+        timeout: float = 30.0,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        if not upload_url.startswith("https://") or not presign_url.startswith("https://"):
+            raise ValueError("object storage endpoints must use HTTPS")
+        if not api_key.strip():
+            raise ValueError("object storage API key is required")
+        super().__init__("/tmp/tevion-assets", max_bytes=max_bytes, timeout=timeout, http_client=http_client)
+        self.upload_url = upload_url
+        self.presign_url = presign_url
+        self.api_key = api_key
+        self.folder = folder
+
+    def persist_bytes(self, data: bytes, mime_type: str) -> str:
+        normalized = mime_type.split(";", 1)[0].strip().lower()
+        if normalized not in ALLOWED_MIME_TYPES:
+            raise AssetError("unsupported MIME type")
+        if not data:
+            raise AssetError("asset is empty")
+        if len(data) > self.max_bytes:
+            raise AssetError("asset exceeds maximum size")
+        suffix = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[normalized]
+        try:
+            response = self._client.post(
+                self.upload_url,
+                headers={"X-API-Key": self.api_key},
+                data={"folder": self.folder},
+                files={"file": (f"image.{suffix}", data, normalized)},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise AssetError("object storage upload failed") from exc
+        if not payload.get("success") or not payload.get("key") or not payload.get("bucket"):
+            raise AssetError("object storage returned an invalid upload response")
+        return f"s3://{payload['bucket']}/{payload['key']}"
+
+    def public_url(self, uri: str) -> str:
+        _, key = self._parse_uri(uri)
+        try:
+            response = self._client.get(
+                self.presign_url,
+                params={"key": key},
+                headers={"X-API-Key": self.api_key},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise AssetError("object storage presign failed") from exc
+        url = payload.get("url") or payload.get("download_url") or payload.get("presigned_url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise AssetError("object storage returned an invalid presign response")
+        return url
+
+    def read(self, uri: str) -> bytes:
+        if uri.startswith("s3://"):
+            data, _ = self.read_source(self.public_url(uri))
+            return data
+        return super().read(uri)
+
+    @staticmethod
+    def _parse_uri(uri: str) -> tuple[str, str]:
+        if not uri.startswith("s3://"):
+            raise AssetError("unsupported object storage URI")
+        value = uri[5:]
+        bucket, separator, key = value.partition("/")
+        if not separator or not bucket or not key or ".." in key.split("/"):
+            raise AssetError("invalid object storage URI")
+        return bucket, key
+
+
 def _matches_image_signature(data: bytes, mime_type: str) -> bool:
     if mime_type == "image/png":
         return data.startswith(b"\x89PNG\r\n\x1a\n")
@@ -165,3 +249,18 @@ def _matches_image_signature(data: bytes, mime_type: str) -> bool:
     if mime_type == "image/webp":
         return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
     return False
+
+
+def build_asset_store() -> LocalAssetStore:
+    """Select remote object storage when configured, otherwise keep local dev storage."""
+    api_key = os.environ.get("TEVION_STORAGE_API_KEY", "").strip()
+    if not api_key:
+        return LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+    upload_url = os.environ.get("TEVION_STORAGE_UPLOAD_URL", "https://ysqvr.com/api/storage/upload")
+    presign_url = os.environ.get("TEVION_STORAGE_PRESIGN_URL", "https://ysqvr.com/api/storage/presign")
+    return ObjectStorageAssetStore(
+        upload_url=upload_url,
+        presign_url=presign_url,
+        api_key=api_key,
+        folder=os.environ.get("TEVION_STORAGE_FOLDER", "images"),
+    )

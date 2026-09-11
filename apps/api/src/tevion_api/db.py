@@ -7,8 +7,11 @@ PostgreSQL instance so a plain `docker compose up -d` is enough to develop.
 import os
 from collections.abc import Generator
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+load_dotenv()
 
 DEFAULT_DB_URL = "postgresql+psycopg://tevion:tevion_dev@localhost:5432/tevion"
 
