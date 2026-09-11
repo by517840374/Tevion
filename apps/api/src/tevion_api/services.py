@@ -1065,7 +1065,10 @@ def execute_generation(
     metadata["provider_request_id"] = result.provider_request_id
     metadata["metadata_source"] = result.metadata_source
     width, height = _parse_pixel_size(metadata.get("size"))
-    if asset_store is None and result.provider_name == "pixhub":
+    # Every provider result must be downloaded and persisted before it is exposed
+    # to the client. Provider URLs may expire; the database should retain only a
+    # durable local/object-storage URI.
+    if asset_store is None:
         asset_store = build_asset_store()
     for source, mime_type in zip(
         result.asset_urls,
