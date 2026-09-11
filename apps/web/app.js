@@ -22,7 +22,7 @@ let selectedProjectId = sessionStorage.getItem(PROJECT_KEY) || '';
 let uploadedParentVersionId = null;
 let projectTasks = [];
 const GENERATION_POLL_INTERVAL_MS = 3000;
-const GENERATION_POLL_TIMEOUT_MS = 90000;
+const GENERATION_POLL_TIMEOUT_MS = 300000;
 
 function toast(msg, type = 'info', ms = 5000) {
   const el = $('toast');
@@ -960,7 +960,7 @@ async function pollTaskUntilComplete() {
     if (status === 'failed' || status === 'cancelled' || status === 'needs_user_review') throw new Error(lastDetail.error_message || '任务已结束但未返回图片（status=' + status + '）。');
     await new Promise(resolve => setTimeout(resolve, GENERATION_POLL_INTERVAL_MS));
   }
-  const timeout = new Error('查询已等待 90 秒，任务状态仍为 ' + String(lastDetail?.status || 'unknown') + '。');
+  const timeout = new Error('查询已等待 300 秒，任务状态仍为 ' + String(lastDetail?.status || 'unknown') + '。');
   timeout.recoveryRequired = true;
   throw timeout;
 }
@@ -1247,7 +1247,7 @@ async function handleGenerate({ reuse = false } = {}) {
     }
 
     // 2) 同步等待真实生成（约 30–120 秒）
-    renderLoading(1, '生成中，约需 1–2 分钟', '图片由真实后端管线生成，请保持本页打开，耐心等待。');
+    renderLoading(1, '生成中，最长等待 5 分钟', '图片由真实后端管线生成，请保持本页打开，耐心等待。');
     startElapsed();
     setAgentPill('正在生成 ' + (currentTask.output_count || 4) + ' 张候选', 'busy');
 
