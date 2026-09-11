@@ -252,7 +252,7 @@ async function loadProjectTasks(projectId = getProjectId()) {
   } finally { center.setAttribute('aria-busy', 'false'); }
 }
 function parseTaskData(value) { try { return JSON.parse(value); } catch { return null; } }
-function continueTaskFromCenter(task) { if (task?.task_id) { currentTask = task; resumeTaskQuery(); } }
+function continueTaskFromCenter(task) { if (task?.task_id) { currentTask = { ...task, run_id: task.run_id }; resumeTaskQuery(); } }
 function retryTaskFromCenter(task) { if (task?.task_id) { currentTask = task; handleGenerate({ reuse: true }); } }
 function viewTaskFromCenter(task, refine = false) {
   if (!task?.task_id) return;
