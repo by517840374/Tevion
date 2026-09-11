@@ -90,6 +90,7 @@ def test_pending_submit_is_persisted_and_returns_without_polling(db):
     assert task.run.provider_request_id == "maizi-task-136"
     assert task.session.status == "generating"
     assert provider.submit_calls == 1
+    assert sorted(job.action for job in task.run.execution_jobs) == ["poll", "resume"]
 
 
 def test_reconcile_pending_run_queries_by_id_and_finalizes_idempotently(db):

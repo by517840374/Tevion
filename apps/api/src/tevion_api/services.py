@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from .assets import AssetError, LocalAssetStore
+from .execution_jobs import enqueue_lifecycle_jobs
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
 from .models import (
     FeedbackEvent,
@@ -990,12 +991,14 @@ def execute_generation(
                 if session.status == "created":
                     transition_session_status(session, "generating")
                 db.commit()
+                enqueue_lifecycle_jobs(db, run.id, run.id, run.provider_request_id)
                 return []
             if operation.status is ProviderOperationStatus.UNKNOWN:
                 transition_generation_status(run, "unknown")
                 run.error_code = operation.error_code or "provider_unknown"
                 run.error_message = "provider request outcome is unknown; recovery required"
                 db.commit()
+                enqueue_lifecycle_jobs(db, run.id, run.id, run.provider_request_id)
                 return []
             if operation.status is ProviderOperationStatus.VIOLATION:
                 transition_generation_status(run, "needs_user_review")
