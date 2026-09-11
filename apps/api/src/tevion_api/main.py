@@ -302,7 +302,7 @@ def list_project_sessions(
 
 
 def _task_list_images(db: OrmSession, run_id: str) -> list[ImageSummary]:
-    """Expose only locally controlled asset URLs in the task-center contract."""
+    """Expose owned asset URLs, including presigned remote object-storage URLs."""
     images = db.scalars(
         select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at)
     ).all()
@@ -315,7 +315,6 @@ def _task_list_images(db: OrmSession, run_id: str) -> list[ImageSummary]:
             parent_image_id=image.parent_image_id,
         )
         for image in images
-        if image.asset_uri.startswith("tevion://assets/")
     ]
 
 

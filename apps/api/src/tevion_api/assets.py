@@ -6,6 +6,7 @@ import base64
 import binascii
 import hashlib
 import ipaddress
+import logging
 import os
 import socket
 import tempfile
@@ -15,6 +16,7 @@ from urllib.parse import urlparse
 import httpx
 
 ALLOWED_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
+logger = logging.getLogger(__name__)
 
 
 class AssetError(ValueError):
@@ -201,6 +203,7 @@ class ObjectStorageAssetStore(LocalAssetStore):
             raise AssetError("object storage upload failed") from exc
         if not payload.get("success") or not payload.get("key") or not payload.get("bucket"):
             raise AssetError("object storage returned an invalid upload response")
+        logger.info("asset_storage_upload_completed provider=ysqvr mime_type=%s bytes=%d", normalized, len(data))
         return f"s3://{payload['bucket']}/{payload['key']}"
 
     def public_url(self, uri: str) -> str:
