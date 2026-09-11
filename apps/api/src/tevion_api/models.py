@@ -6,7 +6,7 @@ Timestamps are timezone-aware; JSON columns are PostgreSQL JSONB.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -30,7 +30,15 @@ def _new_id(prefix: str) -> str:
 
 
 def _ts() -> Mapped[datetime]:
-    return mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Keep the database default for direct SQL inserts, while assigning the
+    # value in Python for ORM-created rows so same-transaction ordering is
+    # deterministic when the database timestamp precision ties.
+    return mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
 
 
 class User(Base):
