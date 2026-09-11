@@ -101,10 +101,10 @@
         <div class="project-picker-actions"><button class="secondary-button" id="manageProjectsBtn" type="button">管理项目</button><button class="text-button" id="workbenchNewProjectBtn" type="button">新建项目</button></div>
       </div>
       <div class="refine-upload" id="refineUpload">
-        <label class="field-label" for="refineImageFile">上传参考图</label>
-        <input id="refineImageFile" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="refineUploadNote refineUploadStatus">
+        <label class="field-label" for="refineImageFile">上传参考图（可多选）</label>
+        <input id="refineImageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple aria-describedby="refineUploadNote refineUploadStatus">
         <button class="secondary-button" id="refineUploadButton" type="button" disabled>上传并绑定参考图</button>
-        <p class="field-hint refine-upload-note" id="refineUploadNote">选择当前项目后上传 PNG、JPEG 或 WebP；上传成功后可作为 Refine parent 使用。</p>
+        <p class="field-hint refine-upload-note" id="refineUploadNote">可一次选择多张 PNG、JPEG 或 WebP；上传后点击图片可放大，也可选择其中一张作为 Refine parent。</p>
         <p class="field-hint" id="refineUploadStatus" role="status" aria-live="polite"></p>
         <div id="referencePreview" class="reference-preview" hidden></div>
       </div>

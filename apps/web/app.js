@@ -20,6 +20,7 @@ let historyProjects = [];
 let historySessions = [];
 let selectedProjectId = sessionStorage.getItem(PROJECT_KEY) || '';
 let uploadedParentVersionId = null;
+let uploadedReferenceImages = [];
 let projectTasks = [];
 const GENERATION_POLL_INTERVAL_MS = 3000;
 const GENERATION_POLL_TIMEOUT_MS = 300000;
@@ -627,12 +628,19 @@ function setRefineUploadStatus(message, error = false) {
   status.className = 'field-hint' + (error ? ' upload-error' : '');
 }
 
-function renderReferencePreview(url, alt = '已上传参考图') {
+function renderReferencePreview(images = []) {
   const target = $('referencePreview');
-  if (!target || !url) return;
-  target.hidden = false;
-  target.innerHTML = '<button type="button" class="reference-preview-button" data-lightbox="' + escapeHtml(url) + '" aria-label="打开参考图大图预览"><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><span>点击查看大图</span></button>';
-  target.querySelector('[data-lightbox]').addEventListener('click', event => openLightbox(event.currentTarget.dataset.lightbox, alt));
+  if (!target) return;
+  target.hidden = !images.length;
+  target.innerHTML = images.map((item, index) => {
+    const url = item.url || item.previewUrl;
+    const alt = item.name || ('参考图 ' + (index + 1));
+    const selected = item.parent_version_id && item.parent_version_id === uploadedParentVersionId;
+    return '<article class="reference-card' + (selected ? ' selected' : '') + '">' +
+      '<button type="button" class="reference-preview-button" data-lightbox="' + escapeHtml(url) + '" aria-label="打开' + escapeHtml(alt) + '大图预览"><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><span>点击查看大图</span></button>' +
+      '<div class="reference-card-footer"><span>' + escapeHtml(alt) + '</span><button type="button" class="small-button reference-parent-button" data-reference-parent="' + escapeHtml(item.parent_version_id || '') + '"' + (item.parent_version_id ? '' : ' disabled') + '>' + (selected ? '当前精修图' : '设为精修图') + '</button></div>' +
+      '</article>';
+  }).join('');
 }
 
 async function uploadReferenceImage(projectId, file) {
@@ -673,24 +681,30 @@ async function uploadReferenceImage(projectId, file) {
 async function handleReferenceImageUpload() {
   const input = $('refineImageFile');
   const button = $('refineUploadButton');
-  const file = input?.files?.[0];
+  const files = Array.from(input?.files || []);
   const projectId = getProjectId();
-  if (!file) return setRefineUploadStatus('请先选择一张本地图片。', true);
+  if (!files.length) return setRefineUploadStatus('请先选择至少一张本地图片。', true);
   if (!projectId) return setRefineUploadStatus('请先在项目历史中选择项目，再上传本地图片。', true);
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return setRefineUploadStatus('仅支持 PNG、JPEG 或 WebP 图片。', true);
-  renderReferencePreview(URL.createObjectURL(file), file.name);
+  const invalid = files.find(file => !['image/png', 'image/jpeg', 'image/webp'].includes(file.type));
+  if (invalid) return setRefineUploadStatus('文件“' + invalid.name + '”格式不受支持，仅支持 PNG、JPEG 或 WebP。', true);
   button.disabled = true;
-  setRefineUploadStatus('正在上传并绑定 Refine parent…');
+  setRefineUploadStatus('正在上传 ' + files.length + ' 张参考图…');
   try {
-    const result = await uploadReferenceImage(projectId, file);
-    uploadedParentVersionId = result.parent_version_id;
-    chosenId = uploadedParentVersionId;
-    currentTask = { ...(currentTask || {}), project_id: projectId, parent_version_id: uploadedParentVersionId };
+    for (const file of files) {
+      const preview = { name: file.name, previewUrl: URL.createObjectURL(file) };
+      uploadedReferenceImages.push(preview);
+      renderReferencePreview(uploadedReferenceImages);
+      const result = await uploadReferenceImage(projectId, file);
+      Object.assign(preview, result, { name: file.name });
+      uploadedParentVersionId = result.parent_version_id;
+      chosenId = uploadedParentVersionId;
+      currentTask = { ...(currentTask || {}), project_id: projectId, parent_version_id: uploadedParentVersionId };
+      renderReferencePreview(uploadedReferenceImages);
+      setRefineUploadStatus('已上传 ' + uploadedReferenceImages.length + '/' + files.length + ' 张，当前已选最后一张作为 Refine parent。');
+    }
     renderSelectedParent();
     renderRefineContext();
-    renderReferencePreview(result.url, file.name);
-    setRefineUploadStatus('已上传并绑定 selected parent：' + uploadedParentVersionId);
-    toast('本地图片已绑定为 Refine parent。', 'success');
+    toast('本地参考图已上传 ' + files.length + ' 张，可点击放大或切换精修图。', 'success');
   } catch (err) {
     setRefineUploadStatus(err.message, true);
     toast('本地图片上传失败：' + err.message, 'error', 9000);
@@ -1327,10 +1341,27 @@ $('oidcBtn')?.addEventListener('click', async () => { if (!(await startOidcLogin
 window.addEventListener('hashchange', () => renderRoute());
 $('refineUploadButton')?.addEventListener('click', handleReferenceImageUpload);
 $('refineImageFile')?.addEventListener('change', event => {
-  const file = event.target.files?.[0];
+  const files = Array.from(event.target.files || []);
   const button = $('refineUploadButton');
-  if (button) button.disabled = !file;
-  setRefineUploadStatus(file ? '已选择：' + file.name + '，点击上传并绑定。' : '');
+  if (button) button.disabled = !files.length;
+  setRefineUploadStatus(files.length ? '已选择 ' + files.length + ' 张图片，点击上传并绑定。' : '');
+});
+$('referencePreview')?.addEventListener('click', event => {
+  const preview = event.target.closest('[data-lightbox]');
+  if (preview) {
+    const image = preview.querySelector('img');
+    openLightbox(preview.dataset.lightbox, image?.alt || '参考图');
+    return;
+  }
+  const parent = event.target.closest('[data-reference-parent]');
+  if (!parent?.dataset.referenceParent) return;
+  uploadedParentVersionId = parent.dataset.referenceParent;
+  chosenId = uploadedParentVersionId;
+  currentTask = { ...(currentTask || {}), project_id: getProjectId(), parent_version_id: uploadedParentVersionId };
+  renderReferencePreview(uploadedReferenceImages);
+  renderSelectedParent();
+  renderRefineContext();
+  setRefineUploadStatus('已切换当前 Refine parent：' + uploadedParentVersionId);
 });
 $('historyProject')?.addEventListener('change', event => {
   setProjectId(event.target.value);
