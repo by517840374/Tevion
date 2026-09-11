@@ -11,7 +11,7 @@ import os
 import socket
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -169,16 +169,20 @@ class ObjectStorageAssetStore(LocalAssetStore):
         presign_url: str,
         api_key: str,
         folder: str = "images",
+        public_base_url: str = "https://cdn.ysqvr.com",
         max_bytes: int = 10 * 1024 * 1024,
         timeout: float = 30.0,
         http_client: httpx.Client | None = None,
     ) -> None:
         if not upload_url.startswith("https://") or not presign_url.startswith("https://"):
             raise ValueError("object storage endpoints must use HTTPS")
+        if not public_base_url.startswith("https://"):
+            raise ValueError("object storage public base URL must use HTTPS")
         if not api_key.strip():
             raise ValueError("object storage API key is required")
         super().__init__("/tmp/tevion-assets", max_bytes=max_bytes, timeout=timeout, http_client=http_client)
         self.upload_url, self.presign_url, self.api_key, self.folder = upload_url, presign_url, api_key, folder
+        self.public_base_url = public_base_url.rstrip("/")
 
     def persist_bytes(self, data: bytes, mime_type: str) -> str:
         normalized = mime_type.split(";", 1)[0].strip().lower()
@@ -207,19 +211,13 @@ class ObjectStorageAssetStore(LocalAssetStore):
         return f"s3://{payload['bucket']}/{payload['key']}"
 
     def public_url(self, uri: str) -> str:
-        _, key = self._parse_uri(uri)
-        try:
-            response = self._client.get(
-                self.presign_url, params={"key": key}, headers={"X-API-Key": self.api_key}, timeout=self.timeout
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise AssetError("object storage presign failed") from exc
-        url = payload.get("url") or payload.get("download_url") or payload.get("presigned_url")
-        if not isinstance(url, str) or not url.startswith("https://"):
-            raise AssetError("object storage returned an invalid presign response")
-        return url
+        bucket, key = self._parse_uri(uri)
+        # The presign endpoint is intentionally not used for client-facing URLs:
+        # its result expires. kunpeng's storage contract exposes a permanent CDN
+        # URL derived from bucket + key instead.
+        encoded_key = "/".join(quote(part, safe="") for part in key.split("/"))
+        encoded_bucket = quote(bucket, safe="")
+        return f"{self.public_base_url}/{encoded_bucket}/{encoded_key}"
 
     def read(self, uri: str) -> bytes:
         if uri.startswith("s3://"):
@@ -256,4 +254,5 @@ def build_asset_store() -> LocalAssetStore:
         presign_url=os.environ.get("TEVION_STORAGE_PRESIGN_URL", "https://ysqvr.com/api/storage/presign"),
         api_key=api_key,
         folder=os.environ.get("TEVION_STORAGE_FOLDER", "images"),
+        public_base_url=os.environ.get("TEVION_STORAGE_PUBLIC_BASE_URL", "https://cdn.ysqvr.com"),
     )
