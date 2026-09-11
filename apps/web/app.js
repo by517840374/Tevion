@@ -88,21 +88,23 @@ function setProjectId(id) { selectedProjectId = id || ''; if (selectedProjectId)
 let authMode = 'login';
 function routeName() {
   const value = window.location.hash.replace(/^#/, '').toLowerCase();
-  return ['login', 'register', 'workbench'].includes(value) ? value : (getToken() ? 'workbench' : 'landing');
+  return ['login', 'register', 'projects', 'new-project', 'workbench'].includes(value) ? value : (getToken() ? 'projects' : 'landing');
 }
 function routeTo(name) {
-  const route = ['landing', 'login', 'register', 'workbench'].includes(name) ? name : 'landing';
+  const route = ['landing', 'login', 'register', 'projects', 'new-project', 'workbench'].includes(name) ? name : 'landing';
   if (window.location.hash !== '#' + route) window.location.hash = route === 'landing' ? '' : route;
   renderRoute(route);
 }
 function renderRoute(route = routeName()) {
   $('landingView').hidden = route !== 'landing';
   $('authView').hidden = !['login', 'register'].includes(route);
+  $('projectsView').hidden = route !== 'projects';
+  $('newProjectView').hidden = route !== 'new-project';
   $('workbenchView').hidden = route !== 'workbench';
-  document.querySelector('.topbar-meta').textContent = route === 'workbench' ? '视觉探索工作台 / 实时后端联调模式' : '从意图到视觉方向';
-  if (route === 'workbench' && !getToken()) return routeTo('login');
+  document.querySelector('.topbar-meta').textContent = route === 'workbench' ? '项目执行 / 实时后端联调模式' : ['projects', 'new-project'].includes(route) ? '项目管理 / 独立工作空间' : '从意图到视觉方向';
+  if (['projects', 'new-project', 'workbench'].includes(route) && !getToken()) return routeTo('login');
   if (['login', 'register'].includes(route)) setupAuthForm(route);
-  document.title = route === 'landing' ? 'Tevion — 从感觉到画面' : route === 'register' ? '注册 Tevion' : route === 'login' ? '登录 Tevion' : 'Tevion — Visual Agent Workbench';
+  document.title = route === 'landing' ? 'Tevion — 从感觉到画面' : route === 'register' ? '注册 Tevion' : route === 'login' ? '登录 Tevion' : route === 'projects' ? 'Tevion — 项目管理' : route === 'new-project' ? 'Tevion — 新建项目' : 'Tevion — 项目执行';
 }
 function setupAuthForm(route) {
   authMode = route;
@@ -138,7 +140,7 @@ async function submitAuth(event) {
     setToken(data.access_token);
     $('authMessage').textContent = authMode === 'register' ? '账号创建成功，正在进入工作台…' : '登录成功，正在进入工作台…';
     $('authMessage').className = 'auth-message success';
-    window.setTimeout(() => routeTo('workbench'), 120);
+    window.setTimeout(() => routeTo('projects'), 120);
   } catch (err) {
     $('authMessage').className = 'auth-message';
     $('authMessage').textContent = authMode === 'register' && err.status === 409 ? '该邮箱账号已存在，请直接登录。' : authMode === 'login' ? '登录失败，请检查邮箱和密码。' : '注册失败，请检查输入后重试。';
@@ -177,12 +179,26 @@ function renderProjectOptions(items) {
   if ($('projectStatus')) $('projectStatus').textContent = items.length + ' 个可用项目';
 }
 
+function renderProjectManagement(items) {
+  const target = $('projectManagementList');
+  const status = $('projectManagementStatus');
+  if (!target) return;
+  if (!items.length) {
+    if (status) status.textContent = '还没有项目，先创建一个独立工作空间。';
+    target.innerHTML = '<div class="empty-management panel"><div class="empty-orbit"></div><h2>暂无项目</h2><p>创建项目后，再进入项目执行页上传参考图、创建任务和查看结果。</p><button class="primary-button" data-new-project type="button">新建第一个项目 →</button></div>';
+    return;
+  }
+  if (status) status.textContent = '共 ' + items.length + ' 个项目。选择一个项目进入执行页。';
+  target.innerHTML = items.map(item => '<article class="project-management-card panel"><div><div class="eyebrow">PROJECT</div><h2>' + escapeHtml(historyLabel(item, '未命名项目')) + '</h2><p>' + escapeHtml(item.description || '暂无项目描述') + '</p></div><div class="project-card-actions"><span class="muted">项目 ID：' + escapeHtml(item.id || '未提供') + '</span><button class="primary-button" data-open-project="' + escapeHtml(item.id || '') + '" type="button">进入执行 →</button></div></article>').join('');
+}
+
 async function loadProjects() {
   if (!getToken()) return;
   try {
     const data = await api('/projects');
     historyProjects = listPayload(data);
     renderProjectOptions(historyProjects);
+    renderProjectManagement(historyProjects);
     renderHistoryOptions($('historyProject'), historyProjects, '暂无项目');
     if (historyProjects.length) {
       $('historyProject').value = getProjectId();
@@ -537,7 +553,7 @@ async function handleLogin() {
     setToken(data.access_token);
     toast('演示登录成功，可以开始生成了。', 'success');
     await loadProjectHistory();
-    routeTo('workbench');
+    routeTo('projects');
   } catch (err) {
     toast('登录失败：' + err.message, 'error', 8000);
   } finally {
@@ -589,13 +605,11 @@ function renderRefineContext() {
   const context = $('refineContext');
   const status = $('refineParentStatus');
   const uploadNote = $('refineUploadNote');
-  const uploadPanel = $('refineUpload');
   if (!context || !status) return;
   const refine = document.querySelector('.mode.active')?.dataset.mode === 'refine';
   context.hidden = !refine;
-  if (uploadPanel) uploadPanel.hidden = !refine;
   if (!refine) return;
-  if (uploadNote) uploadNote.textContent = '选择项目后上传 PNG、JPEG 或 WebP；上传会调用当前项目的 reference-images multipart API。';
+  if (uploadNote) uploadNote.textContent = '上传入口始终可用；上传成功后可作为 Refine parent 使用。';
   status.innerHTML = chosenId
     ? '<strong>selected parent</strong>：' + escapeHtml(chosenId) + '（下一次生成将携带 parent_version_id）'
     : '<strong>尚未选择 selected parent</strong>：请先在 Explore 结果区选择一张候选图，才能进行图生图精修。';
@@ -1281,6 +1295,12 @@ document.querySelectorAll('.mode').forEach(mode =>
   }));
 $('generate').addEventListener('click', () => handleGenerate());
 $('loginBtn').addEventListener('click', () => routeTo('login'));
+$('projectsBtn')?.addEventListener('click', () => routeTo('projects'));
+$('newProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
+$('manageProjectsBtn')?.addEventListener('click', () => routeTo('projects'));
+$('workbenchNewProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
+$('backToProjectsBtn')?.addEventListener('click', () => routeTo('projects'));
+$('cancelProjectBtn')?.addEventListener('click', () => routeTo('projects'));
 $('logoutBtn').addEventListener('click', handleLogout);
 $('authForm')?.addEventListener('submit', submitAuth);
 $('devTokenBtn')?.addEventListener('click', handleLogin);
@@ -1310,6 +1330,14 @@ $('taskList')?.addEventListener('click', event => {
   else if (button.dataset.taskRefine) viewTaskFromCenter(task, true);
 });
 $('projectForm')?.addEventListener('submit', createProject);
+$('projectManagementList')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-open-project], [data-new-project]');
+  if (!button) return;
+  if (button.dataset.newProject !== undefined) return routeTo('new-project');
+  setProjectId(button.dataset.openProject);
+  routeTo('workbench');
+  loadProjects();
+});
 $('results').addEventListener('click', e => {
   const sel = e.target.closest('[data-select]');
   if (sel) {
