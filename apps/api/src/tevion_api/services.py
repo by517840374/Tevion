@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import statistics
 import uuid
 from dataclasses import dataclass, replace
@@ -30,6 +31,8 @@ from .provider import (
     ProviderResponseError,
     classify_provider_error,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _new_id(prefix: str) -> str:
@@ -1031,6 +1034,12 @@ def execute_generation(
             )
     except ProviderResponseError as exc:
         classification = classify_provider_error(exc)
+        logger.warning(
+            "generation_provider_failed task_id=%s run_id=%s classification=%s",
+            task.session.id,
+            run.id,
+            classification.code,
+        )
         if classification.code == "timeout":
             transition_generation_status(run, "unknown")
             run.error_code = "provider_timeout_unknown"
@@ -1042,6 +1051,7 @@ def execute_generation(
         db.commit()
         raise
     except Exception as exc:  # noqa: BLE001 - record any provider failure
+        logger.exception("generation_failed task_id=%s run_id=%s", task.session.id, run.id)
         transition_generation_status(run, "failed")
         run.error_code = "internal"
         run.error_message = str(exc)[:2000]
@@ -1074,6 +1084,13 @@ def execute_generation(
         )
         db.add(image)
         images.append(image)
+
+    logger.info(
+        "generation_assets_persisted task_id=%s run_id=%s image_count=%d",
+        task.session.id,
+        task.run.id,
+        len(result.asset_urls),
+    )
 
     transition_generation_status(run, "completed")
     run.provider_name = result.provider_name

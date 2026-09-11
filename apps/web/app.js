@@ -622,6 +622,14 @@ function setRefineUploadStatus(message, error = false) {
   status.className = 'field-hint' + (error ? ' upload-error' : '');
 }
 
+function renderReferencePreview(url, alt = '已上传参考图') {
+  const target = $('referencePreview');
+  if (!target || !url) return;
+  target.hidden = false;
+  target.innerHTML = '<button type="button" class="reference-preview-button" data-lightbox="' + escapeHtml(url) + '" aria-label="打开参考图大图预览"><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><span>点击查看大图</span></button>';
+  target.querySelector('[data-lightbox]').addEventListener('click', event => openLightbox(event.currentTarget.dataset.lightbox, alt));
+}
+
 async function uploadReferenceImage(projectId, file) {
   const form = new FormData();
   form.append('file', file, file.name);
@@ -665,6 +673,7 @@ async function handleReferenceImageUpload() {
   if (!file) return setRefineUploadStatus('请先选择一张本地图片。', true);
   if (!projectId) return setRefineUploadStatus('请先在项目历史中选择项目，再上传本地图片。', true);
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return setRefineUploadStatus('仅支持 PNG、JPEG 或 WebP 图片。', true);
+  renderReferencePreview(URL.createObjectURL(file), file.name);
   button.disabled = true;
   setRefineUploadStatus('正在上传并绑定 Refine parent…');
   try {
@@ -674,6 +683,7 @@ async function handleReferenceImageUpload() {
     currentTask = { ...(currentTask || {}), project_id: projectId, parent_version_id: uploadedParentVersionId };
     renderSelectedParent();
     renderRefineContext();
+    renderReferencePreview(result.url, file.name);
     setRefineUploadStatus('已上传并绑定 selected parent：' + uploadedParentVersionId);
     toast('本地图片已绑定为 Refine parent。', 'success');
   } catch (err) {
@@ -857,7 +867,10 @@ function renderResults(images, outputMeta = {}) {
     button.addEventListener('click', () => openLightbox(button.dataset.lightbox, button.querySelector('img')?.alt));
   });
 
-  $('regenerate').addEventListener('click', () => handleGenerate({ reuse: true }));
+  $('regenerate').addEventListener('click', () => {
+    currentTask = null;
+    handleGenerate();
+  });
   setBusy(false);
   setAgentPill('已生成 ' + images.length + ' 张候选', 'done');
   setCheckpoint('候选已生成：选择、拒绝或重新生成都将留下反馈记录。');
