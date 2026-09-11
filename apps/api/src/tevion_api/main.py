@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
@@ -51,10 +51,13 @@ from .schemas import (
     ProjectListResponse,
     ProjectSummary,
     ReconciliationRequest,
+    ReferenceImageResponse,
     RegisterRequest,
     SessionListResponse,
     SessionSummary,
     TaskDetail,
+    TaskListItem,
+    TaskListResponse,
     TaskRuntimeResponse,
     TaskStatus,
     TaskSummary,
@@ -124,6 +127,41 @@ def read_asset(
     if os.path.basename(path) != asset_key or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="asset not found")
     return FileResponse(path, media_type=image.mime_type or "application/octet-stream")
+
+
+@app.post("/api/v1/projects/{project_id}/reference-images", response_model=ReferenceImageResponse, status_code=201)
+def upload_reference_image(
+    project_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ReferenceImageResponse:
+    data = file.file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="uploaded file exceeds maximum size")
+    try:
+        created = services.create_reference_image(
+            db,
+            user_id=current_user.id,
+            project_id=project_id,
+            data=data,
+            mime_type=file.content_type or "",
+        )
+    except services.ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except services.AssetError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    prefix = "tevion://assets/"
+    asset_key = created.image.asset_uri[len(prefix) :]
+    return ReferenceImageResponse(
+        id=created.image.id,
+        parent_version_id=created.image.id,
+        asset_key=asset_key,
+        url=f"/api/v1/assets/{asset_key}",
+        mime_type=created.image.mime_type or file.content_type or "application/octet-stream",
+        width=created.image.width,
+        height=created.image.height,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -249,6 +287,67 @@ def list_project_sessions(
     )
 
 
+def _task_list_images(db: OrmSession, run_id: str) -> list[ImageSummary]:
+    """Expose only locally controlled asset URLs in the task-center contract."""
+    images = db.scalars(
+        select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at)
+    ).all()
+    return [
+        ImageSummary(
+            id=image.id,
+            url=_asset_public_url(image.asset_uri),
+            width=image.width,
+            height=image.height,
+            parent_image_id=image.parent_image_id,
+        )
+        for image in images
+        if image.asset_uri.startswith("tevion://assets/")
+    ]
+
+
+@app.get("/api/v1/projects/{project_id}/tasks", response_model=TaskListResponse)
+def list_project_tasks(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> TaskListResponse:
+    tasks = services.list_tasks_for_project(db, current_user.id, project_id)
+    if tasks is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    items: list[TaskListItem] = []
+    for task in tasks:
+        run = task.run
+        params = run.parameters_json or {}
+        images = _task_list_images(db, run.id)
+        output = _output_contract(params, actual_count=len(images), status=run.status)
+        items.append(
+            TaskListItem(
+                task_id=task.session.id,
+                session_id=task.session.id,
+                run_id=run.id,
+                project_id=task.session.project_id,
+                request=task.session.raw_request or "",
+                mode=task.session.mode,
+                status=run.status,
+                created_at=task.session.created_at,
+                started_at=run.started_at,
+                completed_at=run.completed_at,
+                provider_name=run.provider_name,
+                model_name=run.model_name,
+                provider_request_id=run.provider_request_id,
+                parent_run_id=run.parent_run_id,
+                parent_image_id=params.get("parent_image_id"),
+                images=images,
+                reconciliation_required=run.reconciliation_required,
+                reconciliation_reason=run.reconciliation_reason,
+                error_code=run.error_code,
+                error_message=_redacted_error(run.error_message),
+                **output,
+            )
+        )
+    return TaskListResponse(items=items)
+
+
 @app.get("/api/v1/sessions/{session_id}/versions", response_model=ImageVersionListResponse)
 def list_session_versions(
     session_id: str,
@@ -300,6 +399,7 @@ def create_task(
         task_id=created.session.id,
         run_id=created.run.id,
         user_id=current_user.id,
+        project_id=created.session.project_id,
         status=TaskStatus(created.session.status),
         request=created.session.raw_request or "",
         mode=created.session.mode,
@@ -315,7 +415,7 @@ def _image_summaries(db: OrmSession, run_id: str) -> list[ImageSummary]:
     return [
         ImageSummary(
             id=image.id,
-            url=image.asset_uri,
+            url=_asset_public_url(image.asset_uri),
             width=image.width,
             height=image.height,
             parent_image_id=image.parent_image_id,
@@ -512,6 +612,7 @@ def get_task(
     history = services.list_generation_runs_for_user(db, current_user.id, task_id) or []
     return TaskDetail(
         task_id=task.session.id,
+        project_id=task.session.project_id,
         status=TaskStatus(task.session.status),
         mode=task.session.mode,
         request=task.session.raw_request or "",

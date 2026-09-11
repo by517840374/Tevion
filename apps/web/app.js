@@ -5,6 +5,7 @@ const API_BASE = window.TEVION_API_BASE || 'http://127.0.0.1:8010/api/v1';
 
 const OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
 const TOKEN_KEY = 'tevion_token';
+const PROJECT_KEY = 'tevion_project_id';
 const OIDC_TRANSACTION_KEY = 'tevion_oidc_transaction';
 
 /* ---------- 小工具 ---------- */
@@ -17,6 +18,11 @@ let elapsedTimer = null;
 let genStartedAt = 0;
 let historyProjects = [];
 let historySessions = [];
+let selectedProjectId = sessionStorage.getItem(PROJECT_KEY) || '';
+let uploadedParentVersionId = null;
+let projectTasks = [];
+const GENERATION_POLL_INTERVAL_MS = 3000;
+const GENERATION_POLL_TIMEOUT_MS = 90000;
 
 function toast(msg, type = 'info', ms = 5000) {
   const el = $('toast');
@@ -75,6 +81,8 @@ function friendlyHttpError(status) {
 function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
 function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
 function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
+function getProjectId() { return selectedProjectId || sessionStorage.getItem(PROJECT_KEY) || ''; }
+function setProjectId(id) { selectedProjectId = id || ''; if (selectedProjectId) sessionStorage.setItem(PROJECT_KEY, selectedProjectId); else sessionStorage.removeItem(PROJECT_KEY); }
 
 /* ---------- 产品入口路由与账号认证 ---------- */
 let authMode = 'login';
@@ -148,6 +156,128 @@ function listPayload(data) {
 
 function historyLabel(item, fallback) {
   return item.name || item.title || item.raw_request || item.request || item.id || fallback;
+}
+
+function renderProjectOptions(items) {
+  const select = $('projectSelect');
+  if (!select) return;
+  select.innerHTML = '';
+  if (!items.length) {
+    select.appendChild(new Option('暂无项目，请先新建', ''));
+    select.disabled = true;
+    setProjectId('');
+    if ($('projectStatus')) $('projectStatus').textContent = '请新建';
+    return;
+  }
+  const selected = items.some(item => item.id === getProjectId()) ? getProjectId() : items[0].id;
+  items.forEach(item => select.appendChild(new Option(historyLabel(item, '未命名项目'), item.id)));
+  select.value = selected;
+  select.disabled = false;
+  setProjectId(selected);
+  if ($('projectStatus')) $('projectStatus').textContent = items.length + ' 个可用项目';
+}
+
+async function loadProjects() {
+  if (!getToken()) return;
+  try {
+    const data = await api('/projects');
+    historyProjects = listPayload(data);
+    renderProjectOptions(historyProjects);
+    renderHistoryOptions($('historyProject'), historyProjects, '暂无项目');
+    if (historyProjects.length) {
+      $('historyProject').value = getProjectId();
+      await loadHistorySessions(getProjectId());
+      await loadProjectTasks(getProjectId());
+    }
+  } catch (err) {
+    renderProjectOptions([]);
+    if ($('projectStatus')) $('projectStatus').textContent = '加载失败';
+    renderHistoryMessage('项目读取失败：' + err.message + ' 可重试。', true);
+  }
+}
+
+function taskStatusLabel(status) {
+  return ({ created: '已创建', generating: '生成中', completed: '已完成', failed: '失败', unknown: '状态未知', needs_user_review: '需要确认' })[status] || status || '未知状态';
+}
+function taskDate(value) {
+  if (!value) return '时间未提供';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' });
+}
+function taskImageMarkup(item) {
+  return (Array.isArray(item.images) ? item.images : []).map((image, index) => {
+    const value = typeof image === 'string' ? { url: image } : (image || {});
+    return value.url ? '<img loading="lazy" alt="任务结果 ' + (index + 1) + '" src="' + escapeHtml(value.url) + '">' : '';
+  }).join('');
+}
+function taskDataset(item) {
+  return escapeHtml(JSON.stringify({ task_id: item.task_id, run_id: item.run_id, project_id: item.project_id, session_id: item.session_id, request: item.request, mode: item.mode, output_count: item.requested_output_count, images: item.images || [] }));
+}
+function renderTaskList(items) {
+  const target = $('taskList');
+  if (!target) return;
+  if (!items.length) { target.innerHTML = '<p class="muted">当前项目暂无任务。</p>'; return; }
+  target.innerHTML = items.map(item => {
+    const status = String(item.status || 'unknown').toLowerCase();
+    const images = Array.isArray(item.images) ? item.images : [];
+    const count = item.actual_output_count ?? images.length;
+    const requested = item.requested_output_count ?? '—';
+    const data = taskDataset(item);
+    let actions = '';
+    if (['created', 'generating', 'unknown'].includes(status)) actions += '<button type="button" class="small-button" data-task-continue="' + data + '">继续查询</button>';
+    if (status === 'failed' && item.retryable !== false) actions += '<button type="button" class="small-button" data-task-retry="' + data + '">重试生成</button>';
+    if (status === 'completed' && images.length) actions += '<button type="button" class="small-button" data-task-view="' + data + '">查看结果</button><button type="button" class="secondary-button" data-task-refine="' + data + '">进入 Refine</button>';
+    return '<article class="task-card task-status-' + escapeHtml(status) + '" data-task-id="' + escapeHtml(item.task_id || '') + '"><div class="task-card-heading"><div><span class="task-status-badge">' + escapeHtml(taskStatusLabel(status)) + '</span><h3>' + escapeHtml(String(item.request || '未提供请求')) + '</h3></div><time>' + escapeHtml(taskDate(item.created_at)) + '</time></div><div class="task-card-meta"><span>' + escapeHtml(item.mode === 'refine' ? 'Refine' : 'Explore') + '</span><span>结果 ' + escapeHtml(String(count)) + ' / ' + escapeHtml(String(requested)) + '</span><span>run_id: ' + escapeHtml(item.run_id || '未提供') + '</span></div>' + (taskImageMarkup(item) ? '<div class="task-card-images">' + taskImageMarkup(item) + '</div>' : '') + (item.error_code ? '<p class="task-error">' + escapeHtml(String(item.error_code)) + '</p>' : '') + ((item.parent_run_id || item.parent_image_id) ? '<p class="task-lineage">parent：' + escapeHtml(item.parent_run_id || item.parent_image_id) + '</p>' : '') + (actions ? '<div class="task-actions">' + actions + '</div>' : '') + '</article>';
+  }).join('');
+}
+function renderTaskCenterMessage(message, error = false) {
+  const status = $('taskCenterStatus');
+  const retry = $('taskCenterRetry');
+  if (status) { status.textContent = message; status.className = 'muted intro' + (error ? ' history-error' : ''); }
+  if (retry) retry.hidden = !error;
+}
+async function loadProjectTasks(projectId = getProjectId()) {
+  const center = $('taskCenter');
+  if (!center || !projectId || !getToken()) return renderTaskCenterMessage('选择项目后加载任务历史。');
+  center.setAttribute('aria-busy', 'true');
+  renderTaskCenterMessage('正在加载任务历史…');
+  try {
+    projectTasks = listPayload(await api('/projects/' + encodeURIComponent(projectId) + '/tasks'));
+    renderTaskList(projectTasks);
+    renderTaskCenterMessage(projectTasks.length ? '已加载 ' + projectTasks.length + ' 个任务。' : '当前项目暂无任务。');
+  } catch (err) {
+    projectTasks = [];
+    renderTaskList([]);
+    renderTaskCenterMessage('任务列表读取失败：' + err.message + ' 可重试。', true);
+  } finally { center.setAttribute('aria-busy', 'false'); }
+}
+function parseTaskData(value) { try { return JSON.parse(value); } catch { return null; } }
+function continueTaskFromCenter(task) { if (task?.task_id) { currentTask = { ...task, run_id: task.run_id }; resumeTaskQuery(); } }
+function retryTaskFromCenter(task) { if (task?.task_id) { currentTask = task; handleGenerate({ reuse: true }); } }
+function viewTaskFromCenter(task, refine = false) {
+  if (!task?.task_id) return;
+  currentTask = task; showEcho(task.request || '任务中心历史任务'); renderResults(task.images || [], task);
+  if (refine) { chosenId = task.images?.[0]?.id || task.images?.[0]; document.querySelector('.mode[data-mode="refine"]')?.click(); renderSelectedParent(); renderRefineContext(); }
+}
+function handleProjectChange(projectId) {
+  setProjectId(projectId); if ($('historyProject')) $('historyProject').value = projectId;
+  loadHistorySessions(projectId); loadProjectTasks(projectId);
+}
+
+async function createProject(event) {
+  event.preventDefault();
+  const name = $('projectName').value.trim();
+  const message = $('projectFormMessage');
+  if (!name) { message.textContent = '请输入项目名称。'; $('projectName').focus(); return; }
+  const button = $('createProject'); button.disabled = true; message.textContent = '正在创建项目…';
+  try {
+    const project = await api('/projects', { method: 'POST', body: { name, description: $('projectDescription').value.trim() || null } });
+    $('projectName').value = ''; $('projectDescription').value = '';
+    await loadProjects();
+    setProjectId(project.id); $('projectSelect').value = project.id; $('historyProject').value = project.id;
+    message.textContent = '项目已创建并设为当前项目。'; toast('项目创建成功。', 'success');
+  } catch (err) { message.textContent = '创建失败：' + err.message; }
+  finally { button.disabled = false; }
 }
 
 function renderHistoryMessage(message, error = false) {
@@ -392,6 +522,7 @@ function refreshLoginUI() {
   const results = $('results');
   if (cta) cta.hidden = has || results.classList.contains('results') || results.querySelector('.error-box');
   loadMetrics();
+  if (has) loadProjects();
 }
 
 async function handleLogin() {
@@ -457,13 +588,84 @@ function escapeHtml(s) {
 function renderRefineContext() {
   const context = $('refineContext');
   const status = $('refineParentStatus');
+  const uploadNote = $('refineUploadNote');
+  const uploadPanel = $('refineUpload');
   if (!context || !status) return;
   const refine = document.querySelector('.mode.active')?.dataset.mode === 'refine';
   context.hidden = !refine;
+  if (uploadPanel) uploadPanel.hidden = !refine;
   if (!refine) return;
+  if (uploadNote) uploadNote.textContent = '选择项目后上传 PNG、JPEG 或 WebP；上传会调用当前项目的 reference-images multipart API。';
   status.innerHTML = chosenId
     ? '<strong>selected parent</strong>：' + escapeHtml(chosenId) + '（下一次生成将携带 parent_version_id）'
     : '<strong>尚未选择 selected parent</strong>：请先在 Explore 结果区选择一张候选图，才能进行图生图精修。';
+}
+
+function setRefineUploadStatus(message, error = false) {
+  const status = $('refineUploadStatus');
+  if (!status) return;
+  status.textContent = message;
+  status.className = 'field-hint' + (error ? ' upload-error' : '');
+}
+
+async function uploadReferenceImage(projectId, file) {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = 'Bearer ' + token;
+  let response;
+  try {
+    response = await fetch(API_BASE + '/projects/' + encodeURIComponent(projectId) + '/reference-images', {
+      method: 'POST', headers, body: form
+    });
+  } catch (err) {
+    const error = new Error('无法连接后端服务，上传未完成。');
+    error.network = true;
+    throw error;
+  }
+  const text = await response.text();
+  let data = null;
+  if (text) { try { data = JSON.parse(text); } catch { data = { raw: text }; } }
+  if (!response.ok) {
+    const error = new Error(response.status === 404
+      ? '本地图片上传接口尚未提供（HTTP 404），请等待后端实现 /projects/{project_id}/reference-images。'
+      : response.status === 413
+        ? '图片超过后端允许的大小（HTTP 413），请选择更小的图片。'
+        : response.status === 415
+          ? '图片格式不受支持（HTTP 415），请使用 PNG、JPEG 或 WebP。'
+          : friendlyHttpError(response.status));
+    error.status = response.status;
+    error.detail = data?.detail || data?.message || '';
+    throw error;
+  }
+  if (!data?.parent_version_id) throw new Error('上传响应缺少 parent_version_id，无法绑定 Refine parent。');
+  return data;
+}
+
+async function handleReferenceImageUpload() {
+  const input = $('refineImageFile');
+  const button = $('refineUploadButton');
+  const file = input?.files?.[0];
+  const projectId = getProjectId();
+  if (!file) return setRefineUploadStatus('请先选择一张本地图片。', true);
+  if (!projectId) return setRefineUploadStatus('请先在项目历史中选择项目，再上传本地图片。', true);
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return setRefineUploadStatus('仅支持 PNG、JPEG 或 WebP 图片。', true);
+  button.disabled = true;
+  setRefineUploadStatus('正在上传并绑定 Refine parent…');
+  try {
+    const result = await uploadReferenceImage(projectId, file);
+    uploadedParentVersionId = result.parent_version_id;
+    chosenId = uploadedParentVersionId;
+    currentTask = { ...(currentTask || {}), project_id: projectId, parent_version_id: uploadedParentVersionId };
+    renderSelectedParent();
+    renderRefineContext();
+    setRefineUploadStatus('已上传并绑定 selected parent：' + uploadedParentVersionId);
+    toast('本地图片已绑定为 Refine parent。', 'success');
+  } catch (err) {
+    setRefineUploadStatus(err.message, true);
+    toast('本地图片上传失败：' + err.message, 'error', 9000);
+  } finally { button.disabled = false; }
 }
 
 function syncRefineControls() {
@@ -645,6 +847,110 @@ function renderResults(images, outputMeta = {}) {
   setBusy(false);
   setAgentPill('已生成 ' + images.length + ' 张候选', 'done');
   setCheckpoint('候选已生成：选择、拒绝或重新生成都将留下反馈记录。');
+}
+
+function candidateCardMarkup(img, i) {
+  const w = img.width || 1, h = img.height || 1;
+  const dims = (img.width && img.height) ? img.width + '×' + img.height : '';
+  return '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(img.url) + '">' +
+    '<div class="img-wrap" style="aspect-ratio:' + w + '/' + h + '">' +
+      '<div class="img-loader">加载图片 ' + (i + 1) + '</div>' +
+      '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
+    '</div><div class="candidate-meta"><div class="card-info"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' +
+    (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
+    '</div><button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
+    '<button type="button" class="reject-candidate" aria-label="拒绝候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button></div></article>';
+}
+
+function bindCandidateImages(root = $('results')) {
+  root.querySelectorAll('.img-wrap').forEach(wrap => {
+    const img = wrap.querySelector('img');
+    if (!img) return;
+    if (img.complete && img.naturalWidth > 0) wrap.classList.add('loaded');
+    else img.addEventListener('load', () => wrap.classList.add('loaded'), { once: true });
+    img.addEventListener('error', () => {
+      wrap.classList.add('loaded');
+      wrap.querySelector('.img-loader').textContent = '图片加载失败';
+      toast('候选图加载失败，可尝试「重新生成」。', 'error');
+    }, { once: true });
+  });
+  root.querySelectorAll('[data-lightbox]').forEach(button => {
+    button.addEventListener('click', () => openLightbox(button.dataset.lightbox, button.querySelector('img')?.alt));
+  });
+}
+
+// 只把后端实际返回的图片替换进等待卡，不模拟进度或生成虚假 URL。
+function updateGenerationPlaceholders(images) {
+  const placeholders = Array.from(document.querySelectorAll('[data-generation-placeholder="true"]'));
+  if (!placeholders.length || !images.length) return;
+  images.forEach((image, index) => {
+    const card = placeholders[index];
+    if (card && image?.url) card.outerHTML = candidateCardMarkup(image, index);
+  });
+  bindCandidateImages($('results'));
+}
+
+function renderRecoverableTask(message) {
+  stopElapsed();
+  setBusy(false);
+  const r = $('results');
+  r.className = 'results panel';
+  r.setAttribute('aria-busy', 'false');
+  r.innerHTML = '<div class="error-box"><div class="error-title">生成仍可继续查询</div><p>' + escapeHtml(message) + '</p><div class="actions"><button class="small-button" id="continueTaskQuery">继续查询/恢复任务</button><button class="secondary-button" id="errBack">修改需求重来</button></div></div>';
+  $('continueTaskQuery').addEventListener('click', () => resumeTaskQuery());
+  $('errBack').addEventListener('click', () => { currentTask = null; resetResults(); });
+  setAgentPill('等待继续查询', 'busy');
+  setCheckpoint('后端任务仍可通过任务详情查询；本页不声明 durable worker。');
+}
+
+async function pollTaskUntilComplete() {
+  const taskId = currentTask?.task_id;
+  if (!taskId) throw new Error('缺少任务 ID，无法恢复查询。');
+  const deadline = Date.now() + GENERATION_POLL_TIMEOUT_MS;
+  let lastDetail = null;
+  while (Date.now() < deadline) {
+    lastDetail = await api('/tasks/' + encodeURIComponent(taskId));
+    const runId = lastDetail?.run_id;
+    if (runId && ['generating', 'unknown'].includes(String(lastDetail?.status || '').toLowerCase())) {
+      try {
+        const reconciled = await api('/tasks/' + encodeURIComponent(taskId) + '/generations/' + encodeURIComponent(runId) + '/reconcile', {
+          method: 'POST', body: { reason: 'frontend recovery poll' }
+        });
+        lastDetail = { ...lastDetail, ...reconciled, task_id: taskId, run_id: runId };
+      } catch (reconcileError) {
+        if (reconcileError.status !== 409 && reconcileError.status !== 404) throw reconcileError;
+      }
+    }
+    const images = Array.isArray(lastDetail?.images) ? lastDetail.images : [];
+    if (images.length) updateGenerationPlaceholders(images);
+    const status = String(lastDetail?.status || '').toLowerCase();
+    if (status === 'completed' && images.length) return lastDetail;
+    if (status === 'failed' || status === 'cancelled' || status === 'needs_user_review') throw new Error(lastDetail.error_message || '任务已结束但未返回图片（status=' + status + '）。');
+    await new Promise(resolve => setTimeout(resolve, GENERATION_POLL_INTERVAL_MS));
+  }
+  const timeout = new Error('查询已等待 90 秒，任务状态仍为 ' + String(lastDetail?.status || 'unknown') + '。');
+  timeout.recoveryRequired = true;
+  throw timeout;
+}
+
+async function resumeTaskQuery() {
+  if (busy || !currentTask?.task_id) return;
+  setBusy(true);
+  renderLoading(1, '继续查询生成任务', '只查询已创建的任务详情，不会重复提交生成。');
+  startElapsed();
+  try {
+    const detail = await pollTaskUntilComplete();
+    currentTask.run_id = detail.run_id || currentTask.run_id;
+    currentTask.output_meta = detail;
+    renderResults(detail.images, detail);
+    toast('任务已恢复：' + detail.images.length + ' 张候选已就绪。', 'success', 4000);
+  } catch (err) {
+    if (err.network || err.recoveryRequired) renderRecoverableTask(err.message || '暂时无法查询任务状态。');
+    else {
+      renderRecoverableTask(err.message || '任务查询未完成。');
+      toast('任务查询未完成：' + err.message, 'error', 9000);
+    }
+  }
 }
 
 /* ---------- 候选选择（事件委托） ---------- */
@@ -876,7 +1182,7 @@ async function handleGenerate({ reuse = false } = {}) {
         toast('精修前请先选择一张候选图。', 'error');
         return;
       }
-      currentTask.parent_version_id = chosenId;
+      currentTask.parent_version_id = uploadedParentVersionId || chosenId;
     }
   }
   if (!currentTask || !currentTask.task_id && !reuse && !currentTask.request) return;
@@ -892,6 +1198,7 @@ async function handleGenerate({ reuse = false } = {}) {
       setCheckpoint('正在创建任务并登记你的本次需求…');
       const created = await api('/tasks', { method: 'POST', body: {
         request: currentTask.request,
+        project_id: getProjectId() || null,
         mode: currentTask.mode,
         output_count: currentTask.output_count,
         aspect_ratio: currentTask.aspect_ratio,
@@ -915,11 +1222,15 @@ async function handleGenerate({ reuse = false } = {}) {
     let resp = await api('/tasks/' + currentTask.task_id + '/generate', { method: 'POST' });
     let images = resp && Array.isArray(resp.images) ? resp.images : null;
 
-    // 兼容：generate 若未直接返回图片，则回查任务详情
-    if (!images) {
-      const detail = await api('/tasks/' + currentTask.task_id);
-      resp = { ...resp, ...detail };
-      images = detail && Array.isArray(detail.images) ? detail.images : null;
+    // 同步接口若只确认任务仍在生成，则仅回查任务详情；不重复 POST，也不宣称 durable worker。
+    if (!images || !images.length) {
+      if (resp && ['generating', 'unknown'].includes(String(resp.status || '').toLowerCase())) {
+        resp = await pollTaskUntilComplete();
+      } else {
+        const detail = await api('/tasks/' + currentTask.task_id);
+        resp = { ...resp, ...detail };
+      }
+      images = resp && Array.isArray(resp.images) ? resp.images : null;
     }
     if (!images || !images.length) {
       const status = (resp && resp.status) || '';
@@ -931,6 +1242,10 @@ async function handleGenerate({ reuse = false } = {}) {
     toast('生成完成：' + images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
     stopElapsed();
+    if (err.network || err.recoveryRequired) {
+      renderRecoverableTask(err.message || '暂时无法查询任务状态。');
+      return;
+    }
     setBusy(false);
     const msg = err.message || String(err);
     toast('生成失败：' + msg, 'error', 9000);
@@ -971,8 +1286,30 @@ $('authForm')?.addEventListener('submit', submitAuth);
 $('devTokenBtn')?.addEventListener('click', handleLogin);
 $('oidcBtn')?.addEventListener('click', async () => { if (!(await startOidcLogin())) $('authMessage').textContent = 'OIDC 尚未配置，请使用邮箱登录或本地 dev-token。'; });
 window.addEventListener('hashchange', () => renderRoute());
-$('historyProject')?.addEventListener('change', event => loadHistorySessions(event.target.value));
+$('refineUploadButton')?.addEventListener('click', handleReferenceImageUpload);
+$('refineImageFile')?.addEventListener('change', event => {
+  const file = event.target.files?.[0];
+  const button = $('refineUploadButton');
+  if (button) button.disabled = !file;
+  setRefineUploadStatus(file ? '已选择：' + file.name + '，点击上传并绑定。' : '');
+});
+$('historyProject')?.addEventListener('change', event => {
+  setProjectId(event.target.value);
+  loadHistorySessions(event.target.value);
+});
 $('historySession')?.addEventListener('change', event => loadHistoryVersions(event.target.value));
+$('projectSelect')?.addEventListener('change', event => handleProjectChange(event.target.value));
+$('taskCenterRetry')?.addEventListener('click', () => loadProjectTasks());
+$('taskList')?.addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const task = parseTaskData(button.dataset.taskContinue || button.dataset.taskRetry || button.dataset.taskView || button.dataset.taskRefine);
+  if (button.dataset.taskContinue) continueTaskFromCenter(task);
+  else if (button.dataset.taskRetry) retryTaskFromCenter(task);
+  else if (button.dataset.taskView) viewTaskFromCenter(task);
+  else if (button.dataset.taskRefine) viewTaskFromCenter(task, true);
+});
+$('projectForm')?.addEventListener('submit', createProject);
 $('results').addEventListener('click', e => {
   const sel = e.target.closest('[data-select]');
   if (sel) {

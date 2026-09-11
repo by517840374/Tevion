@@ -70,10 +70,27 @@
         <button class="mode active" data-mode="explore">探索</button>
         <button class="mode" data-mode="refine">精修</button>
       </div>
+      <div class="project-picker" id="projectPicker" aria-live="polite">
+        <div class="field-label row-label"><span>当前项目</span><span class="muted" id="projectStatus">登录后加载</span></div>
+        <select id="projectSelect" class="history-select" disabled aria-label="选择当前项目"><option>暂无项目</option></select>
+        <form id="projectForm" class="project-form" novalidate>
+          <label class="field-label" for="projectName">新建项目</label>
+          <div class="project-form-row"><input id="projectName" type="text" maxlength="120" placeholder="例如：头像探索" aria-describedby="projectFormMessage"><button class="small-button" id="createProject" type="submit">新建</button></div>
+          <textarea id="projectDescription" rows="2" maxlength="2000" placeholder="项目描述（可选）"></textarea>
+          <p class="field-hint" id="projectFormMessage" role="status" aria-live="polite"></p>
+        </form>
+      </div>
       <div class="refine-context" id="refineContext" hidden aria-live="polite">
         <div class="refine-context-title">精修基于当前 selected parent</div>
         <p id="refineParentStatus">尚未选择候选图。</p>
         <div class="refine-scope"><span><strong>保留</strong> 已选择候选的主体、光影与整体感觉</span><span><strong>修改</strong> 你在左侧输入的内容与视觉方向</span></div>
+        <div class="refine-upload" id="refineUpload" hidden>
+          <label class="field-label" for="refineImageFile">或上传本地参考图</label>
+          <input id="refineImageFile" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="refineUploadNote refineUploadStatus">
+          <button class="secondary-button" id="refineUploadButton" type="button" disabled>上传并绑定 Refine parent</button>
+          <p class="field-hint refine-upload-note" id="refineUploadNote">选择项目后上传 PNG、JPEG 或 WebP；上传会调用当前项目的 reference-images multipart API。</p>
+          <p class="field-hint" id="refineUploadStatus" role="status" aria-live="polite"></p>
+        </div>
       </div>
       <div class="form-grid">
         <div><label class="field-label">比例</label><select id="ratio" aria-describedby="ratioHint"><option value="4:5">4:5 人像 · 1024×1280</option><option value="1:1">1:1 方形 · 1024×1024</option><option value="9:16">9:16 竖屏 · 1024×1792</option><option value="3:4">3:4 人像 · 768×1024</option><option value="2:3">2:3 人像 · 683×1024</option><option value="3:2">3:2 横图 · 1024×683</option><option value="16:9">16:9 横屏 · 1024×576</option><option value="21:9">21:9 超宽 · 1024×439</option><option value="5:4">5:4 横图 · 1024×819</option><option value="4:3">4:3 横图 · 1024×768</option><option value="2:1">2:1 横幅 · 1024×512</option><option value="1:2">1:2 竖幅 · 512×1024</option><option value="1:3">1:3 长竖幅 · 341×1024</option></select><p class="field-hint" id="ratioHint">尺寸会随比例传给生成任务，便于预览构图。</p></div>
@@ -121,6 +138,11 @@
         <label class="field-label history-session-label" for="historySession">当前会话</label>
         <select id="historySession" class="history-select" disabled><option>暂无会话</option></select>
         <div id="historyVersions" class="history-list"><p class="muted">选择项目和会话后查看历史版本。</p></div>
+      </div>
+      <div class="task-center" id="taskCenter" aria-live="polite" aria-busy="false">
+        <div class="eyebrow">TASK CENTER</div>
+        <div class="task-center-heading"><div><h2>任务中心</h2><p class="muted intro" id="taskCenterStatus">选择项目后加载任务历史。</p></div><button class="text-button" id="taskCenterRetry" type="button" hidden>重新加载 →</button></div>
+        <div id="taskList" class="task-list"><p class="muted">暂无任务。</p></div>
       </div>
       <div class="metrics-panel" id="metricsSummary" aria-live="polite" aria-busy="false">
         <div class="eyebrow">PRODUCT METRICS</div>

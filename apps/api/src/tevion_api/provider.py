@@ -24,6 +24,7 @@ class ProviderOperationStatus(StrEnum):
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
+    VIOLATION = "violation"
     UNKNOWN = "unknown"
 
 
@@ -599,6 +600,13 @@ class MaizitechImageProvider:
                 task_id,
                 error_code="provider_failed",
                 error_message=self._redact(str(body.get("error_msg") or status)),
+            )
+        if status == "violation":
+            return ProviderOperationResult(
+                ProviderOperationStatus.VIOLATION,
+                task_id,
+                error_code="provider_violation",
+                error_message=self._redact(str(body.get("error_msg") or "provider policy violation")),
             )
         return ProviderOperationResult(ProviderOperationStatus.PENDING, task_id)
 

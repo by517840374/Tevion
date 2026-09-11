@@ -17,12 +17,14 @@
     </section>
   </main>
   <div hidden>
+    <button id="generate"></button><button id="loginBtn"></button><button id="logoutBtn"></button><button id="createProject"></button><form id="projectForm"></form><input id="projectName"><textarea id="projectDescription"></textarea><p id="projectFormMessage"></p><select id="projectSelect"></select><span id="projectStatus"></span>
     <button id="generate"></button><button id="loginBtn"></button><button id="logoutBtn"></button>
     <div id="toast"></div><div id="agentState"></div><div id="checkpointText"></div><h2 id="resultsTitle"></h2><span id="resultsMeta"></span>
     <button id="memoryBtn"></button><button id="profileBtn"></button>
     <div id="memoryStatus"></div><div id="memoryList"></div>
     <div id="authChip"></div><p id="loginHint"></p><select id="ratio"><option>4:5</option><option>1:1</option><option>9:16</option><option>3:4</option><option>2:3</option><option>3:2</option><option>16:9</option><option>21:9</option><option>5:4</option><option>4:3</option><option>2:1</option><option>1:2</option><option>1:3</option></select><p id="ratioHint">尺寸</p><div id="results"></div>
     <div id="historyPanel"><p id="historyStatus"></p><select id="historyProject" class="history-select"></select><select id="historySession" class="history-select"></select><div id="historyVersions"></div></div>
+    <div id="taskCenter"><p id="taskCenterStatus"></p><button id="taskCenterRetry" hidden></button><div id="taskList"></div></div>
     <div class="mode-switch"><button class="mode active" data-mode="explore">探索</button><button class="mode" data-mode="refine">精修</button></div><div id="refineContext" hidden><p id="refineParentStatus"></p></div><select id="count"><option value="4">4 张</option><option value="2">2 张</option><option value="1">1 张</option></select><p id="countHint"></p>
     <section id="metricsSummary"><p id="metricsStatus"></p><div id="metricsGrid"></div></section>
   </div>
@@ -81,6 +83,18 @@
           has(/历史版本读取失败：[\s\S]*可重新选择会话重试/) &&
           has(/会话读取失败：[\s\S]*可重新选择项目重试/) &&
           has(/项目历史读取失败：[\s\S]*后端接口就绪后可重试/));
+        record('任务中心 DOM 与项目任务 endpoint 契约完整',
+          ['taskCenter', 'taskCenterStatus', 'taskCenterRetry', 'taskList'].every(id => Boolean(document.getElementById(id))) &&
+          has(/function loadProjectTasks\(projectId/) && has(/\/projects\/['"] \+ encodeURIComponent\(projectId\) \+ ['"]\/tasks/));
+        record('任务中心覆盖 loading、empty、error 与状态卡',
+          has(/正在加载任务历史/) && has(/当前项目暂无任务/) && has(/任务列表读取失败/) &&
+          has(/generating/) && has(/completed/) && has(/failed/) && has(/unknown/));
+        record('任务中心入口按状态提供继续查询、重试、查看与 Refine',
+          has(/继续查询/) && has(/重试生成/) && has(/查看结果/) && has(/进入 Refine/) &&
+          has(/function continueTaskFromCenter\(/) && has(/function retryTaskFromCenter\(/));
+        record('项目切换刷新任务中心',
+          has(/function handleProjectChange\(/) && has(/loadProjectTasks\(projectId\)/) &&
+          has(/projectSelect.*handleProjectChange/s));
         record('工作台状态与候选操作具备可访问性契约',
           has(/aria-live/) && has(/aria-busy/) &&
           has(/aria-label=.*选择候选/) && has(/aria-label=.*拒绝候选/));
@@ -95,6 +109,14 @@
         });
         record('真实返回图片替换等待占位', document.querySelectorAll('[data-generation-placeholder="true"]').length === 0 &&
           document.querySelector('#results .candidate img')?.getAttribute('src') === returnedImageUrl);
+        record('生成任务仅在 generating/unknown 时有界轮询详情',
+          has(/GENERATION_POLL_INTERVAL_MS/) && has(/GENERATION_POLL_TIMEOUT_MS/) &&
+          has(/function pollTaskUntilComplete\(\)/) && has(/仅回查任务详情/) &&
+          has(/不会重复提交生成/));
+        record('查询超时或断开提供继续查询/恢复任务操作',
+          has(/function renderRecoverableTask\(/) && has(/继续查询\/恢复任务/) &&
+          has(/function resumeTaskQuery\(\)/) && has(/recoveryRequired/) &&
+          has(/不声明 durable worker/));
         record('历史面板失败状态提供显式重试入口', has(/historyRetry/) && has(/loadProjectHistory\(\)/));
         record('选择候选后明确渲染 selected parent',
           has(/function renderSelectedParent\(\)/) && has(/id = 'selectedParent'/) && has(/selected parent/));
@@ -118,6 +140,11 @@
           has(/尚未选择 selected parent/) && has(/function syncRefineControls\(\)/) &&
           has(/count\.value = '1'/) && has(/精修默认生成 1 张/) &&
           document.getElementById('countHint'));
+        record('Refine 本地上传使用约定 multipart API 并绑定 parent_version_id',
+          has(/new FormData\(\)/) && has(/form\.append\(['"]file['"]/) &&
+          has(/\/projects\/['"] \+ encodeURIComponent\(projectId\) \+ ['"]\/reference-images/) &&
+          has(/method: ['"]POST['"]/) && has(/parent_version_id/) &&
+          has(/HTTP 404/) && has(/HTTP 413/) && has(/HTTP 415/));
         record('Refine 创建任务保留 parent_version_id API body 契约',
           has(/mode: currentTask\.mode/) && has(/parent_version_id: currentTask\.parent_version_id/) &&
           has(/api\(['"]\/tasks['"]/));
@@ -130,6 +157,10 @@
         record('项目历史 select 使用 Tevion 视觉统一类',
           document.getElementById('historyProject')?.classList.contains('history-select') &&
           document.getElementById('historySession')?.classList.contains('history-select'));
+        record('项目管理具备新建、列表、切换与 session 持久化契约',
+          ['projectPicker','projectSelect','projectForm','projectName','projectDescription','createProject'].every(id => Boolean(document.getElementById(id))) &&
+          has(/function loadProjects\(\)/) && has(/function createProject\(/) && has(/sessionStorage\.setItem\(PROJECT_KEY/));
+        record('创建任务携带当前 project_id', has(/project_id: getProjectId\(\) \|\| null/) && has(/function getProjectId\(\)/));
         record('结果展示 requested actual 数量与短缺解释',
           has(/requested_output_count/) && has(/actual_output_count/) && has(/output_completeness/) &&
           has(/output_shortfall/) && has(/请求.*实际|实际.*请求/));

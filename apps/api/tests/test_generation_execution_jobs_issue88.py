@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from tevion_api import services
 from tevion_api.db import Base
 from tevion_api.execution_jobs import (
     GenerationExecutionAction,
@@ -14,6 +15,8 @@ from tevion_api.execution_jobs import (
 )
 from tevion_api.models import GenerationRun, Project, User
 from tevion_api.models import Session as GenerationSession
+from tevion_api.provider import ProviderOperationResult, ProviderOperationStatus
+from tevion_api.worker import process_one_generation_job
 
 TEST_DB_URL = os.environ.get("TEVION_TEST_DB_URL", "postgresql+psycopg://tevion:tevion_dev@localhost:5432/tevion_test")
 
@@ -95,6 +98,38 @@ def test_expired_claim_can_be_reclaimed_with_a_new_epoch(db):
     assert second is not None
     assert second.id == first.id
     assert second.lease_epoch > first.lease_epoch
+
+
+def test_worker_processes_persisted_resume_job_without_submitting_again(db):
+    task = services.CreatedTask(db.query(GenerationSession).one(), db.query(GenerationRun).one())
+    task.run.user_id = db.query(User).one().id
+    task.run.status = "unknown"
+    task.run.provider_request_id = "provider-request-worker"
+    task.run.reconciliation_required = True
+    db.commit()
+
+    store = GenerationExecutionJobStore(db)
+    job = store.enqueue(task.run.id, "invocation-worker", GenerationExecutionAction.RESUME)
+
+    class Provider:
+        def __init__(self):
+            self.resume_calls = []
+            self.submit_calls = 0
+
+        def resume(self, request_id):
+            self.resume_calls.append(request_id)
+            return ProviderOperationResult(ProviderOperationStatus.PENDING, request_id)
+
+        def submit(self, request):
+            self.submit_calls += 1
+            raise AssertionError("worker must not submit a second provider request")
+
+    provider = Provider()
+    assert process_one_generation_job(db, provider, worker_id="worker-test") == 1
+    db.refresh(job)
+    assert job.status == "deferred", job.last_error
+    assert provider.resume_calls == ["provider-request-worker"]
+    assert provider.submit_calls == 0
 
 
 @pytest.fixture()

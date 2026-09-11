@@ -77,6 +77,13 @@ class LocalAssetStore:
                 temporary_path.unlink(missing_ok=True)
         return f"tevion://assets/{key}"
 
+    def persist_upload(self, data: bytes, mime_type: str) -> str:
+        """Persist a user upload after checking declared and actual format."""
+        normalized = mime_type.split(";", 1)[0].strip().lower()
+        if not _matches_image_signature(data, normalized):
+            raise AssetError("uploaded content is not a valid image")
+        return self.persist_bytes(data, normalized)
+
     def persist_url(self, url: str) -> str:
         data, mime_type = self.read_source(url)
         return self.persist_bytes(data, mime_type)
@@ -148,3 +155,13 @@ class LocalAssetStore:
     def close(self) -> None:
         if self._owns_client:
             self._client.close()
+
+
+def _matches_image_signature(data: bytes, mime_type: str) -> bool:
+    if mime_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    if mime_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff")
+    if mime_type == "image/webp":
+        return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return False

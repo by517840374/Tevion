@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from .assets import AssetError, LocalAssetStore
+from .execution_jobs import enqueue_lifecycle_jobs
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
 from .models import (
     FeedbackEvent,
@@ -47,6 +48,54 @@ class OwnedImageVersion:
     session: Session
     run: GenerationRun
     image: ImageVersion
+
+
+def create_reference_image(
+    db: OrmSession,
+    *,
+    user_id: str,
+    project_id: str,
+    data: bytes,
+    mime_type: str,
+    asset_store: LocalAssetStore | None = None,
+) -> OwnedImageVersion:
+    """Create an owned ImageVersion backed by a local upload."""
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+    if project is None:
+        raise ProjectNotFoundError("project not found")
+    store = asset_store or LocalAssetStore(os.environ.get("TEVION_ASSET_ROOT", "/tmp/tevion-assets"))
+    asset_uri = store.persist_upload(data, mime_type)
+    normalized_mime = mime_type.split(";", 1)[0].strip().lower()
+    session = Session(
+        project_id=project.id,
+        mode="explore",
+        raw_request="Uploaded reference image",
+        status="awaiting_selection",
+    )
+    db.add(session)
+    db.flush()
+    run = GenerationRun(
+        session_id=session.id,
+        user_id=user_id,
+        strategy_version="reference-upload",
+        provider_name="local",
+        model_name="local-upload",
+        status="completed",
+        completed_at=datetime.now(timezone.utc),
+        parameters_json={"source": "local_upload"},
+    )
+    db.add(run)
+    db.flush()
+    image = ImageVersion(
+        run_id=run.id,
+        asset_uri=asset_uri,
+        mime_type=normalized_mime,
+        metadata_json={"source": "local_upload", "filename": "redacted"},
+    )
+    db.add(image)
+    db.commit()
+    db.refresh(image)
+    return OwnedImageVersion(session=session, run=run, image=image)
 
 
 @dataclass(frozen=True)
@@ -469,6 +518,28 @@ def list_sessions_for_project(db: OrmSession, user_id: str, project_id: str) -> 
     return list(
         db.scalars(select(Session).where(Session.project_id == project_id).order_by(Session.created_at, Session.id))
     )
+
+
+def list_tasks_for_project(db: OrmSession, user_id: str, project_id: str) -> list[CreatedTask] | None:
+    """Return each owned persisted task once, using its latest generation run."""
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+    if project is None:
+        return None
+    rows = db.execute(
+        select(Session, GenerationRun)
+        .join(GenerationRun, GenerationRun.session_id == Session.id)
+        .where(Session.project_id == project_id)
+        .order_by(
+            Session.created_at.desc(),
+            Session.id.desc(),
+            GenerationRun.started_at.desc().nullslast(),
+            GenerationRun.id.desc(),
+        )
+    ).all()
+    latest_by_task: dict[str, CreatedTask] = {}
+    for session, run in rows:
+        latest_by_task.setdefault(session.id, CreatedTask(session=session, run=run))
+    return list(latest_by_task.values())
 
 
 def list_image_versions_for_session(db: OrmSession, user_id: str, session_id: str) -> list[ImageVersion] | None:
@@ -915,11 +986,25 @@ def execute_generation(
                 run.provider_request_id = operation.provider_request_id
                 db.commit()
             if operation.status is ProviderOperationStatus.PENDING:
-                operation = provider.poll(operation.provider_request_id)  # type: ignore[attr-defined]
+                run.reconciliation_required = True
+                run.reconciliation_reason = "provider task pending; recovery required"
+                if session.status == "created":
+                    transition_session_status(session, "generating")
+                db.commit()
+                enqueue_lifecycle_jobs(db, run.id, run.id, run.provider_request_id)
+                return []
             if operation.status is ProviderOperationStatus.UNKNOWN:
                 transition_generation_status(run, "unknown")
                 run.error_code = operation.error_code or "provider_unknown"
                 run.error_message = "provider request outcome is unknown; recovery required"
+                db.commit()
+                enqueue_lifecycle_jobs(db, run.id, run.id, run.provider_request_id)
+                return []
+            if operation.status is ProviderOperationStatus.VIOLATION:
+                transition_generation_status(run, "needs_user_review")
+                run.reconciliation_required = False
+                run.error_code = operation.error_code or "provider_violation"
+                run.error_message = operation.error_message or "provider rejected the request"
                 db.commit()
                 return []
             if operation.status is ProviderOperationStatus.FAILED:
@@ -1063,6 +1148,24 @@ def reconcile_generation(
         db.commit()
         return task
 
+    if operation.status is ProviderOperationStatus.VIOLATION:
+        transition_generation_status(run, "needs_user_review")
+        run.reconciliation_required = False
+        run.error_code = operation.error_code or "provider_violation"
+        run.error_message = (operation.error_message or "provider rejected the request")[:2000]
+        run.reconciliation_reason = f"{safe_reason}; evidence=provider_violation"
+        db.commit()
+        return task
+
+    if operation.status is ProviderOperationStatus.PENDING:
+        run.reconciliation_required = True
+        run.error_code = None
+        run.error_message = None
+        run.reconciliation_reason = f"{safe_reason}; evidence=pending"
+        run.last_polled_at = datetime.now(timezone.utc)
+        db.commit()
+        return task
+
     result = operation.result
     if operation.status is not ProviderOperationStatus.COMPLETED or result is None:
         transition_generation_status(run, "unknown")
@@ -1073,7 +1176,7 @@ def reconcile_generation(
         db.commit()
         return task
 
-    if result.provider_request_id != provider_request_id or not result.asset_urls or result.cost is None:
+    if result.provider_request_id != provider_request_id or not result.asset_urls:
         transition_generation_status(run, "unknown")
         run.reconciliation_required = True
         run.error_code = "provider_evidence_invalid"
