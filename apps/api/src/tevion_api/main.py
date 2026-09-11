@@ -56,6 +56,8 @@ from .schemas import (
     SessionListResponse,
     SessionSummary,
     TaskDetail,
+    TaskListItem,
+    TaskListResponse,
     TaskRuntimeResponse,
     TaskStatus,
     TaskSummary,
@@ -283,6 +285,67 @@ def list_project_sessions(
             for session in sessions
         ]
     )
+
+
+def _task_list_images(db: OrmSession, run_id: str) -> list[ImageSummary]:
+    """Expose only locally controlled asset URLs in the task-center contract."""
+    images = db.scalars(
+        select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at)
+    ).all()
+    return [
+        ImageSummary(
+            id=image.id,
+            url=_asset_public_url(image.asset_uri),
+            width=image.width,
+            height=image.height,
+            parent_image_id=image.parent_image_id,
+        )
+        for image in images
+        if image.asset_uri.startswith("tevion://assets/")
+    ]
+
+
+@app.get("/api/v1/projects/{project_id}/tasks", response_model=TaskListResponse)
+def list_project_tasks(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> TaskListResponse:
+    tasks = services.list_tasks_for_project(db, current_user.id, project_id)
+    if tasks is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    items: list[TaskListItem] = []
+    for task in tasks:
+        run = task.run
+        params = run.parameters_json or {}
+        images = _task_list_images(db, run.id)
+        output = _output_contract(params, actual_count=len(images), status=run.status)
+        items.append(
+            TaskListItem(
+                task_id=task.session.id,
+                session_id=task.session.id,
+                run_id=run.id,
+                project_id=task.session.project_id,
+                request=task.session.raw_request or "",
+                mode=task.session.mode,
+                status=run.status,
+                created_at=task.session.created_at,
+                started_at=run.started_at,
+                completed_at=run.completed_at,
+                provider_name=run.provider_name,
+                model_name=run.model_name,
+                provider_request_id=run.provider_request_id,
+                parent_run_id=run.parent_run_id,
+                parent_image_id=params.get("parent_image_id"),
+                images=images,
+                reconciliation_required=run.reconciliation_required,
+                reconciliation_reason=run.reconciliation_reason,
+                error_code=run.error_code,
+                error_message=_redacted_error(run.error_message),
+                **output,
+            )
+        )
+    return TaskListResponse(items=items)
 
 
 @app.get("/api/v1/sessions/{session_id}/versions", response_model=ImageVersionListResponse)

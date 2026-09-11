@@ -88,6 +88,38 @@ class SessionListResponse(BaseModel):
     items: list[SessionSummary] = Field(default_factory=list)
 
 
+class TaskListItem(BaseModel):
+    task_id: str
+    session_id: str
+    run_id: str
+    project_id: str
+    request: str
+    mode: str
+    status: str
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    provider_name: str | None = None
+    model_name: str | None = None
+    provider_request_id: str | None = None
+    requested_output_count: int | None = None
+    actual_output_count: int = 0
+    output_completeness: Literal["complete", "partial", "empty"] = "empty"
+    output_shortfall: int = 0
+    parent_run_id: str | None = None
+    parent_image_id: str | None = None
+    images: list[ImageSummary] = Field(default_factory=list)
+    reconciliation_required: bool | None = None
+    reconciliation_reason: str | None = None
+    retryable: bool = False
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class TaskListResponse(BaseModel):
+    items: list[TaskListItem] = Field(default_factory=list)
+
+
 class ImageVersionListResponse(BaseModel):
     items: list[ImageSummary] = Field(default_factory=list)
 

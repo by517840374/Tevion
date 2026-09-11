@@ -519,6 +519,28 @@ def list_sessions_for_project(db: OrmSession, user_id: str, project_id: str) -> 
     )
 
 
+def list_tasks_for_project(db: OrmSession, user_id: str, project_id: str) -> list[CreatedTask] | None:
+    """Return each owned persisted task once, using its latest generation run."""
+    project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+    if project is None:
+        return None
+    rows = db.execute(
+        select(Session, GenerationRun)
+        .join(GenerationRun, GenerationRun.session_id == Session.id)
+        .where(Session.project_id == project_id)
+        .order_by(
+            Session.created_at.desc(),
+            Session.id.desc(),
+            GenerationRun.started_at.desc().nullslast(),
+            GenerationRun.id.desc(),
+        )
+    ).all()
+    latest_by_task: dict[str, CreatedTask] = {}
+    for session, run in rows:
+        latest_by_task.setdefault(session.id, CreatedTask(session=session, run=run))
+    return list(latest_by_task.values())
+
+
 def list_image_versions_for_session(db: OrmSession, user_id: str, session_id: str) -> list[ImageVersion] | None:
     owned_session = db.scalar(
         select(Session)

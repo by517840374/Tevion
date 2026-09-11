@@ -541,3 +541,91 @@ def test_refine_rejects_parent_image_from_another_project(db_override: None) -> 
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "parent image not found"
+
+
+def test_owner_can_list_persisted_project_tasks_descending_without_private_urls(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        user = m.User(auth_provider="oidc", provider_subject="sub_task_center_owner")
+        session.add(user)
+        session.flush()
+        project = m.Project(user_id=user.id, name="任务中心")
+        session.add(project)
+        session.flush()
+        older = m.Session(project_id=project.id, mode="explore", raw_request="旧任务", status="completed")
+        newer = m.Session(project_id=project.id, mode="refine", raw_request="新任务", status="failed")
+        session.add_all([older, newer])
+        session.flush()
+        old_run = m.GenerationRun(
+            session_id=older.id,
+            user_id=user.id,
+            status="completed",
+            provider_name="maizitech",
+            provider_request_id="provider-public-id",
+            parameters_json={"output_count": 2, "aspect_ratio": "4:5", "api_key": "must-not-leak"},
+        )
+        session.add(old_run)
+        session.flush()
+        new_run = m.GenerationRun(
+            session_id=newer.id,
+            user_id=user.id,
+            status="failed",
+            error_code="provider_error",
+            error_message="Authorization: secret-value",
+            parent_run_id=old_run.id,
+            parameters_json={"output_count": 1, "parent_image_id": "image-parent"},
+            reconciliation_required=True,
+        )
+        session.add_all([old_run, new_run])
+        session.flush()
+        old_run_id = old_run.id
+        session.add(
+            m.ImageVersion(run_id=old_run.id, asset_uri="https://private.example/image.png", width=100, height=120)
+        )
+        session.commit()
+        project_id = project.id
+    engine.dispose()
+
+    response = client.get(f"/api/v1/projects/{project_id}/tasks", headers=_auth("sub_task_center_owner"))
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [item["request"] for item in items] == ["新任务", "旧任务"]
+    assert items[0]["project_id"] == project_id
+    assert items[0]["mode"] == "refine"
+    assert items[0]["status"] == "failed"
+    assert items[0]["parent_run_id"] == old_run_id
+    assert items[0]["reconciliation_required"] is True
+    assert items[0]["retryable"] is True
+    assert items[0]["error_message"] == "[redacted]"
+    assert items[1]["images"] == []
+    serialized = response.text
+    assert "private.example" not in serialized
+    assert "must-not-leak" not in serialized
+
+
+def test_project_task_list_is_empty_for_owned_project(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        user = m.User(auth_provider="oidc", provider_subject="sub_task_center_empty")
+        session.add(user)
+        session.flush()
+        project = m.Project(user_id=user.id, name="空任务项目")
+        session.add(project)
+        session.commit()
+        project_id = project.id
+    engine.dispose()
+
+    listed = client.get(f"/api/v1/projects/{project_id}/tasks", headers=_auth("sub_task_center_empty"))
+    assert listed.status_code == 200
+    assert listed.json() == {"items": []}
+
+
+def test_project_task_list_returns_404_for_non_owner(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as session:
+        _, project_id, _, _ = _create(session, subject="sub_task_center_private")
+    engine.dispose()
+
+    response = client.get(f"/api/v1/projects/{project_id}/tasks", headers=_auth("sub_task_center_intruder"))
+    assert response.status_code == 404
