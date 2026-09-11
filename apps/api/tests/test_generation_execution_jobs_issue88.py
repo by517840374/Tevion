@@ -6,17 +6,17 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from tevion_api import services
 from tevion_api.db import Base
 from tevion_api.execution_jobs import (
     GenerationExecutionAction,
     GenerationExecutionJobStore,
     GenerationLifecycleAdapter,
 )
-from tevion_api.worker import process_one_generation_job
-from tevion_api import services
 from tevion_api.models import GenerationRun, Project, User
 from tevion_api.models import Session as GenerationSession
 from tevion_api.provider import ProviderOperationResult, ProviderOperationStatus
+from tevion_api.worker import process_one_generation_job
 
 TEST_DB_URL = os.environ.get("TEVION_TEST_DB_URL", "postgresql+psycopg://tevion:tevion_dev@localhost:5432/tevion_test")
 
