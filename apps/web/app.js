@@ -95,6 +95,11 @@ function routeTo(name) {
   if (window.location.hash !== '#' + route) window.location.hash = route === 'landing' ? '' : route;
   renderRoute(route);
 }
+function reloadPage() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('_refresh', Date.now().toString());
+  window.location.replace(url.href);
+}
 function renderRoute(route = routeName()) {
   $('landingView').hidden = route !== 'landing';
   $('authView').hidden = !['login', 'register'].includes(route);
@@ -1307,6 +1312,7 @@ document.querySelectorAll('.mode').forEach(mode =>
     syncRefineControls();
   }));
 $('generate').addEventListener('click', () => handleGenerate());
+$('refreshPageBtn')?.addEventListener('click', reloadPage);
 $('loginBtn').addEventListener('click', () => routeTo('login'));
 $('projectsBtn')?.addEventListener('click', () => routeTo('projects'));
 $('newProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
