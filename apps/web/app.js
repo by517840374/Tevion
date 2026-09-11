@@ -20,6 +20,7 @@ let historyProjects = [];
 let historySessions = [];
 let selectedProjectId = sessionStorage.getItem(PROJECT_KEY) || '';
 let uploadedParentVersionId = null;
+let projectTasks = [];
 const GENERATION_POLL_INTERVAL_MS = 3000;
 const GENERATION_POLL_TIMEOUT_MS = 90000;
 
@@ -186,12 +187,81 @@ async function loadProjects() {
     if (historyProjects.length) {
       $('historyProject').value = getProjectId();
       await loadHistorySessions(getProjectId());
+      await loadProjectTasks(getProjectId());
     }
   } catch (err) {
     renderProjectOptions([]);
     if ($('projectStatus')) $('projectStatus').textContent = '加载失败';
     renderHistoryMessage('项目读取失败：' + err.message + ' 可重试。', true);
   }
+}
+
+function taskStatusLabel(status) {
+  return ({ created: '已创建', generating: '生成中', completed: '已完成', failed: '失败', unknown: '状态未知', needs_user_review: '需要确认' })[status] || status || '未知状态';
+}
+function taskDate(value) {
+  if (!value) return '时间未提供';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' });
+}
+function taskImageMarkup(item) {
+  return (Array.isArray(item.images) ? item.images : []).map((image, index) => {
+    const value = typeof image === 'string' ? { url: image } : (image || {});
+    return value.url ? '<img loading="lazy" alt="任务结果 ' + (index + 1) + '" src="' + escapeHtml(value.url) + '">' : '';
+  }).join('');
+}
+function taskDataset(item) {
+  return escapeHtml(JSON.stringify({ task_id: item.task_id, run_id: item.run_id, project_id: item.project_id, session_id: item.session_id, request: item.request, mode: item.mode, output_count: item.requested_output_count, images: item.images || [] }));
+}
+function renderTaskList(items) {
+  const target = $('taskList');
+  if (!target) return;
+  if (!items.length) { target.innerHTML = '<p class="muted">当前项目暂无任务。</p>'; return; }
+  target.innerHTML = items.map(item => {
+    const status = String(item.status || 'unknown').toLowerCase();
+    const images = Array.isArray(item.images) ? item.images : [];
+    const count = item.actual_output_count ?? images.length;
+    const requested = item.requested_output_count ?? '—';
+    const data = taskDataset(item);
+    let actions = '';
+    if (['created', 'generating', 'unknown'].includes(status)) actions += '<button type="button" class="small-button" data-task-continue="' + data + '">继续查询</button>';
+    if (status === 'failed' && item.retryable !== false) actions += '<button type="button" class="small-button" data-task-retry="' + data + '">重试生成</button>';
+    if (status === 'completed' && images.length) actions += '<button type="button" class="small-button" data-task-view="' + data + '">查看结果</button><button type="button" class="secondary-button" data-task-refine="' + data + '">进入 Refine</button>';
+    return '<article class="task-card task-status-' + escapeHtml(status) + '" data-task-id="' + escapeHtml(item.task_id || '') + '"><div class="task-card-heading"><div><span class="task-status-badge">' + escapeHtml(taskStatusLabel(status)) + '</span><h3>' + escapeHtml(String(item.request || '未提供请求')) + '</h3></div><time>' + escapeHtml(taskDate(item.created_at)) + '</time></div><div class="task-card-meta"><span>' + escapeHtml(item.mode === 'refine' ? 'Refine' : 'Explore') + '</span><span>结果 ' + escapeHtml(String(count)) + ' / ' + escapeHtml(String(requested)) + '</span><span>run_id: ' + escapeHtml(item.run_id || '未提供') + '</span></div>' + (taskImageMarkup(item) ? '<div class="task-card-images">' + taskImageMarkup(item) + '</div>' : '') + (item.error_code ? '<p class="task-error">' + escapeHtml(String(item.error_code)) + '</p>' : '') + ((item.parent_run_id || item.parent_image_id) ? '<p class="task-lineage">parent：' + escapeHtml(item.parent_run_id || item.parent_image_id) + '</p>' : '') + (actions ? '<div class="task-actions">' + actions + '</div>' : '') + '</article>';
+  }).join('');
+}
+function renderTaskCenterMessage(message, error = false) {
+  const status = $('taskCenterStatus');
+  const retry = $('taskCenterRetry');
+  if (status) { status.textContent = message; status.className = 'muted intro' + (error ? ' history-error' : ''); }
+  if (retry) retry.hidden = !error;
+}
+async function loadProjectTasks(projectId = getProjectId()) {
+  const center = $('taskCenter');
+  if (!center || !projectId || !getToken()) return renderTaskCenterMessage('选择项目后加载任务历史。');
+  center.setAttribute('aria-busy', 'true');
+  renderTaskCenterMessage('正在加载任务历史…');
+  try {
+    projectTasks = listPayload(await api('/projects/' + encodeURIComponent(projectId) + '/tasks'));
+    renderTaskList(projectTasks);
+    renderTaskCenterMessage(projectTasks.length ? '已加载 ' + projectTasks.length + ' 个任务。' : '当前项目暂无任务。');
+  } catch (err) {
+    projectTasks = [];
+    renderTaskList([]);
+    renderTaskCenterMessage('任务列表读取失败：' + err.message + ' 可重试。', true);
+  } finally { center.setAttribute('aria-busy', 'false'); }
+}
+function parseTaskData(value) { try { return JSON.parse(value); } catch { return null; } }
+function continueTaskFromCenter(task) { if (task?.task_id) { currentTask = task; resumeTaskQuery(); } }
+function retryTaskFromCenter(task) { if (task?.task_id) { currentTask = task; handleGenerate({ reuse: true }); } }
+function viewTaskFromCenter(task, refine = false) {
+  if (!task?.task_id) return;
+  currentTask = task; showEcho(task.request || '任务中心历史任务'); renderResults(task.images || [], task);
+  if (refine) { chosenId = task.images?.[0]?.id || task.images?.[0]; document.querySelector('.mode[data-mode="refine"]')?.click(); renderSelectedParent(); renderRefineContext(); }
+}
+function handleProjectChange(projectId) {
+  setProjectId(projectId); if ($('historyProject')) $('historyProject').value = projectId;
+  loadHistorySessions(projectId); loadProjectTasks(projectId);
 }
 
 async function createProject(event) {
@@ -1228,7 +1298,17 @@ $('historyProject')?.addEventListener('change', event => {
   loadHistorySessions(event.target.value);
 });
 $('historySession')?.addEventListener('change', event => loadHistoryVersions(event.target.value));
-$('projectSelect')?.addEventListener('change', event => { setProjectId(event.target.value); $('historyProject').value = event.target.value; loadHistorySessions(event.target.value); });
+$('projectSelect')?.addEventListener('change', event => handleProjectChange(event.target.value));
+$('taskCenterRetry')?.addEventListener('click', () => loadProjectTasks());
+$('taskList')?.addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const task = parseTaskData(button.dataset.taskContinue || button.dataset.taskRetry || button.dataset.taskView || button.dataset.taskRefine);
+  if (button.dataset.taskContinue) continueTaskFromCenter(task);
+  else if (button.dataset.taskRetry) retryTaskFromCenter(task);
+  else if (button.dataset.taskView) viewTaskFromCenter(task);
+  else if (button.dataset.taskRefine) viewTaskFromCenter(task, true);
+});
 $('projectForm')?.addEventListener('submit', createProject);
 $('results').addEventListener('click', e => {
   const sel = e.target.closest('[data-select]');

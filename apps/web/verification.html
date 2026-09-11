@@ -23,6 +23,7 @@
     <div id="memoryStatus"></div><div id="memoryList"></div>
     <div id="authChip"></div><p id="loginHint"></p><select id="ratio"><option>4:5</option><option>1:1</option><option>9:16</option><option>3:4</option><option>2:3</option><option>3:2</option><option>16:9</option><option>21:9</option><option>5:4</option><option>4:3</option><option>2:1</option><option>1:2</option><option>1:3</option></select><p id="ratioHint">尺寸</p><div id="results"></div>
     <div id="historyPanel"><p id="historyStatus"></p><select id="historyProject" class="history-select"></select><select id="historySession" class="history-select"></select><div id="historyVersions"></div></div>
+    <div id="taskCenter"><p id="taskCenterStatus"></p><button id="taskCenterRetry" hidden></button><div id="taskList"></div></div>
     <div class="mode-switch"><button class="mode active" data-mode="explore">探索</button><button class="mode" data-mode="refine">精修</button></div><div id="refineContext" hidden><p id="refineParentStatus"></p></div><select id="count"><option value="4">4 张</option><option value="2">2 张</option><option value="1">1 张</option></select><p id="countHint"></p>
     <section id="metricsSummary"><p id="metricsStatus"></p><div id="metricsGrid"></div></section>
   </div>
@@ -81,6 +82,18 @@
           has(/历史版本读取失败：[\s\S]*可重新选择会话重试/) &&
           has(/会话读取失败：[\s\S]*可重新选择项目重试/) &&
           has(/项目历史读取失败：[\s\S]*后端接口就绪后可重试/));
+        record('任务中心 DOM 与项目任务 endpoint 契约完整',
+          ['taskCenter', 'taskCenterStatus', 'taskCenterRetry', 'taskList'].every(id => Boolean(document.getElementById(id))) &&
+          has(/function loadProjectTasks\(projectId/) && has(/\/projects\/['"] \+ encodeURIComponent\(projectId\) \+ ['"]\/tasks/));
+        record('任务中心覆盖 loading、empty、error 与状态卡',
+          has(/正在加载任务历史/) && has(/当前项目暂无任务/) && has(/任务列表读取失败/) &&
+          has(/generating/) && has(/completed/) && has(/failed/) && has(/unknown/));
+        record('任务中心入口按状态提供继续查询、重试、查看与 Refine',
+          has(/继续查询/) && has(/重试生成/) && has(/查看结果/) && has(/进入 Refine/) &&
+          has(/function continueTaskFromCenter\(/) && has(/function retryTaskFromCenter\(/));
+        record('项目切换刷新任务中心',
+          has(/function handleProjectChange\(/) && has(/loadProjectTasks\(projectId\)/) &&
+          has(/projectSelect.*handleProjectChange/s));
         record('工作台状态与候选操作具备可访问性契约',
           has(/aria-live/) && has(/aria-busy/) &&
           has(/aria-label=.*选择候选/) && has(/aria-label=.*拒绝候选/));
