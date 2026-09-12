@@ -813,6 +813,19 @@ class MaizitechImageProvider:
             requested_count=request.output_count,
         )
 
+
+class CustomAsyncImageProvider(MaizitechImageProvider):
+    """Configurable async image API using the standard submit/poll contract.
+
+    The endpoint must accept POST /images/generations and return a task_id,
+    then expose GET /tasks/{task_id} with status and result_urls. It may also
+    expose POST /files/upload for image-to-image inputs.
+    """
+
+    @property
+    def provider_name(self) -> str:
+        return "custom_async"
+
     def close(self) -> None:
         if self._owns_client:
             self._client.close()

@@ -97,10 +97,10 @@ function setProjectId(id) { selectedProjectId = id || ''; if (selectedProjectId)
 let authMode = 'login';
 function routeName() {
   const value = window.location.hash.replace(/^#/, '').toLowerCase();
-  return ['login', 'register', 'projects', 'new-project', 'workbench'].includes(value) ? value : (getToken() ? 'projects' : 'landing');
+  return ['login', 'register', 'projects', 'new-project', 'provider-settings', 'workbench'].includes(value) ? value : (getToken() ? 'projects' : 'landing');
 }
 function routeTo(name) {
-  const route = ['landing', 'login', 'register', 'projects', 'new-project', 'workbench'].includes(name) ? name : 'landing';
+  const route = ['landing', 'login', 'register', 'projects', 'new-project', 'provider-settings', 'workbench'].includes(name) ? name : 'landing';
   if (window.location.hash !== '#' + route) window.location.hash = route === 'landing' ? '' : route;
   renderRoute(route);
 }
@@ -114,11 +114,12 @@ function renderRoute(route = routeName()) {
   $('authView').hidden = !['login', 'register'].includes(route);
   $('projectsView').hidden = route !== 'projects';
   $('newProjectView').hidden = route !== 'new-project';
+  $('providerSettingsView').hidden = route !== 'provider-settings';
   $('workbenchView').hidden = route !== 'workbench';
   document.querySelector('.topbar-meta').textContent = route === 'workbench' ? '项目执行 / 实时后端联调模式' : ['projects', 'new-project'].includes(route) ? '项目管理 / 独立工作空间' : '从意图到视觉方向';
-  if (['projects', 'new-project', 'workbench'].includes(route) && !getToken()) return routeTo('login');
+  if (['projects', 'new-project', 'provider-settings', 'workbench'].includes(route) && !getToken()) return routeTo('login');
   if (['login', 'register'].includes(route)) setupAuthForm(route);
-  document.title = route === 'landing' ? 'Tevion — 从感觉到画面' : route === 'register' ? '注册 Tevion' : route === 'login' ? '登录 Tevion' : route === 'projects' ? 'Tevion — 项目管理' : route === 'new-project' ? 'Tevion — 新建项目' : 'Tevion — 项目执行';
+  document.title = route === 'landing' ? 'Tevion — 从感觉到画面' : route === 'register' ? '注册 Tevion' : route === 'login' ? '登录 Tevion' : route === 'projects' ? 'Tevion — 项目管理' : route === 'new-project' ? 'Tevion — 新建项目' : route === 'provider-settings' ? 'Tevion — 图片接口设置' : 'Tevion — 项目执行';
 }
 function setupAuthForm(route) {
   authMode = route;
@@ -321,6 +322,37 @@ async function createProject(event) {
     message.textContent = '项目已创建并设为当前项目。'; toast('项目创建成功。', 'success');
   } catch (err) { message.textContent = '创建失败：' + err.message; }
   finally { button.disabled = false; }
+}
+
+async function loadProviderSettings() {
+  const message = $('providerSettingsMessage');
+  try {
+    const data = await api('/settings/image-provider');
+    $('providerBaseUrl').value = data?.base_url || '';
+    $('providerModel').value = data?.model || 'gpt-image-2';
+    $('providerApiKey').value = '';
+    if (message) message.textContent = data?.configured ? '已配置：' + data.base_url + '（Key 已隐藏）' : '尚未配置图片接口。';
+  } catch (err) { if (message) message.textContent = '读取设置失败：' + err.message; }
+}
+
+async function saveProviderSettings(event) {
+  event.preventDefault();
+  const message = $('providerSettingsMessage');
+  const apiKey = $('providerApiKey').value.trim();
+  if (!apiKey) { if (message) message.textContent = '请输入 API Key（不会保存到浏览器）。'; return; }
+  if (message) message.textContent = '正在保存…';
+  try {
+    const data = await api('/settings/image-provider', { method: 'PUT', body: { base_url: $('providerBaseUrl').value.trim(), api_key: apiKey, model: $('providerModel').value.trim() || 'gpt-image-2' } });
+    $('providerApiKey').value = '';
+    if (message) message.textContent = '已保存并启用：' + data.base_url + '（Key 已隐藏）';
+    toast('图片接口配置已生效。', 'success');
+  } catch (err) { if (message) message.textContent = '保存失败：' + err.message; }
+}
+
+async function clearProviderSettings() {
+  if (!window.confirm('确认清除后端保存的图片接口配置？')) return;
+  try { await api('/settings/image-provider', { method: 'DELETE' }); $('providerApiKey').value = ''; $('providerBaseUrl').value = ''; if ($('providerSettingsMessage')) $('providerSettingsMessage').textContent = '配置已清除。'; toast('图片接口配置已清除。', 'success'); }
+  catch (err) { if ($('providerSettingsMessage')) $('providerSettingsMessage').textContent = '清除失败：' + err.message; }
 }
 
 function renderHistoryMessage(message, error = false) {
@@ -1450,6 +1482,10 @@ $('refreshPageBtn')?.addEventListener('click', reloadPage);
 $('loginBtn').addEventListener('click', () => routeTo('login'));
 $('projectsBtn')?.addEventListener('click', () => routeTo('projects'));
 $('newProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
+$('providerSettingsBtn')?.addEventListener('click', () => { routeTo('provider-settings'); loadProviderSettings(); });
+$('backFromProviderSettingsBtn')?.addEventListener('click', () => routeTo('projects'));
+$('providerSettingsForm')?.addEventListener('submit', saveProviderSettings);
+$('clearProviderSettingsBtn')?.addEventListener('click', clearProviderSettings);
 $('manageProjectsBtn')?.addEventListener('click', () => routeTo('projects'));
 $('workbenchNewProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
 $('backToProjectsBtn')?.addEventListener('click', () => routeTo('projects'));

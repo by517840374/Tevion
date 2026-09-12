@@ -20,9 +20,11 @@ from .auth import (
 from .cors import configure_cors
 from .db import get_db
 from .models import GenerationRun, ImageVersion, Project, Session, User
+from . import provider_settings
 from .provider import (
     DEFAULT_MAIZI_BASE_URL,
     DEFAULT_PIXHUB_BASE_URL,
+    CustomAsyncImageProvider,
     ImageGenerationProvider,
     MaizitechImageProvider,
     PixhubImageProvider,
@@ -39,6 +41,8 @@ from .schemas import (
     GenerateResponse,
     GenerationRunResponse,
     HealthResponse,
+    ImageProviderConfigRequest,
+    ImageProviderConfigResponse,
     ImageSummary,
     ImageVersionListResponse,
     LoginRequest,
@@ -92,7 +96,29 @@ def _asset_key(asset_uri: str) -> str:
 
 def get_image_provider() -> ImageGenerationProvider:
     """Build the real provider from environment; tests override this dependency."""
-    if os.environ.get("IMAGE_PROVIDER", "maizitech").lower() == "pixhub":
+    saved_config = provider_settings.load()
+    provider_kind = os.environ.get("IMAGE_PROVIDER", "maizitech").lower()
+    if saved_config.get("base_url") and saved_config.get("api_key"):
+        provider_kind = "custom"
+    if provider_kind in {"custom", "custom_async", "standard"}:
+        configured = saved_config
+        api_key = configured.get("api_key") or os.environ.get("CUSTOM_IMAGE_API_KEY")
+        base_url = configured.get("base_url") or os.environ.get("CUSTOM_IMAGE_BASE_URL")
+        if not api_key or not base_url:
+            raise HTTPException(status_code=503, detail="custom image provider is not configured")
+        try:
+            timeout_seconds = float(os.environ.get("CUSTOM_IMAGE_TIMEOUT_SECONDS", "300"))
+            poll_interval_seconds = float(os.environ.get("CUSTOM_IMAGE_POLL_INTERVAL_SECONDS", "3"))
+            return CustomAsyncImageProvider(
+                api_key=api_key,
+                base_url=base_url,
+                model_name=configured.get("model") or os.environ.get("CUSTOM_IMAGE_MODEL", "gpt-image-2"),
+                timeout_seconds=timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail="custom image provider is not configured") from exc
+    if provider_kind == "pixhub":
         api_key = os.environ.get("PIXHUB_API_KEY")
         if not api_key:
             raise HTTPException(status_code=503, detail="image provider is not configured")
@@ -120,6 +146,38 @@ def get_image_provider() -> ImageGenerationProvider:
         base_url=os.environ.get("MAIZI_BASE_URL", DEFAULT_MAIZI_BASE_URL),
         model_name=os.environ.get("MAIZI_MODEL", "gpt-image-2"),
     )
+
+
+@app.get("/api/v1/settings/image-provider", response_model=ImageProviderConfigResponse)
+def read_image_provider_config(current_user: User = Depends(get_current_user)) -> ImageProviderConfigResponse:
+    del current_user
+    configured = provider_settings.load()
+    return ImageProviderConfigResponse(
+        configured=bool(configured.get("base_url") and configured.get("api_key")),
+        base_url=configured.get("base_url"),
+        model=configured.get("model"),
+        api_key_configured=bool(configured.get("api_key")),
+    )
+
+
+@app.put("/api/v1/settings/image-provider", response_model=ImageProviderConfigResponse)
+def update_image_provider_config(
+    payload: ImageProviderConfigRequest,
+    current_user: User = Depends(get_current_user),
+) -> ImageProviderConfigResponse:
+    del current_user
+    base_url = payload.base_url.strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="base_url must use http or https")
+    provider_settings.save(base_url=base_url, api_key=payload.api_key.strip(), model=payload.model.strip())
+    return ImageProviderConfigResponse(configured=True, base_url=base_url, model=payload.model.strip(), api_key_configured=True)
+
+
+@app.delete("/api/v1/settings/image-provider", response_model=ImageProviderConfigResponse)
+def delete_image_provider_config(current_user: User = Depends(get_current_user)) -> ImageProviderConfigResponse:
+    del current_user
+    provider_settings.clear()
+    return ImageProviderConfigResponse(configured=False)
 
 
 @app.get("/api/v1/assets/{asset_key}")

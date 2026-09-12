@@ -18,6 +18,7 @@
       </div>
       <button class="ghost-button" id="refreshPageBtn" type="button">刷新页面</button>
       <button class="ghost-button" id="projectsBtn">项目管理</button>
+      <button class="ghost-button" id="providerSettingsBtn">图片接口设置</button>
       <button class="ghost-button" id="profileBtn">查看我的审美画像</button>
     </div>
   </header>
@@ -76,6 +77,24 @@
         <textarea id="projectDescription" rows="4" maxlength="2000" placeholder="这个项目准备创作什么？"></textarea>
         <p class="field-hint" id="projectFormMessage" role="status" aria-live="polite"></p>
         <div class="management-actions"><button class="secondary-button" id="cancelProjectBtn" type="button">取消</button><button class="primary-button" id="createProject" type="submit">创建项目并进入执行</button></div>
+      </form>
+    </section>
+  </main>
+
+  <main id="providerSettingsView" class="management-view" hidden>
+    <section class="management-shell narrow">
+      <button class="back-link" id="backFromProviderSettingsBtn" type="button">← 返回项目管理</button>
+      <div class="eyebrow">IMAGE PROVIDER</div><h1>图片接口设置</h1>
+      <p class="muted">配置会保存到后端服务器，API Key 不会写入浏览器。</p>
+      <form id="providerSettingsForm" class="standalone-project-form" novalidate>
+        <label class="field-label" for="providerBaseUrl">Base URL</label>
+        <input id="providerBaseUrl" type="url" placeholder="https://api.example.com/v1" required>
+        <label class="field-label" for="providerApiKey">API Key</label>
+        <input id="providerApiKey" type="password" autocomplete="new-password" placeholder="输入后端服务 API Key" required>
+        <label class="field-label" for="providerModel">模型</label>
+        <input id="providerModel" type="text" value="gpt-image-2" required>
+        <p class="field-hint" id="providerSettingsMessage" role="status" aria-live="polite"></p>
+        <div class="management-actions"><button class="secondary-button" id="clearProviderSettingsBtn" type="button">清除配置</button><button class="primary-button" type="submit">保存并启用</button></div>
       </form>
     </section>
   </main>

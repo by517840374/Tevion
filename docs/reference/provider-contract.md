@@ -105,6 +105,19 @@ run.status: generating → failed（ProviderResponseError 或其他异常）
 ## 7. Secret 边界
 
 - API key 通过运行环境传入：API 当前从 `MAIZI_API_KEY` 读取；`MAIZI_BASE_URL` 与 `MAIZI_MODEL` 可覆盖默认值。
+
+## 自定义异步图片 Provider
+
+将 `IMAGE_PROVIDER=custom` 后，API 从 `CUSTOM_IMAGE_BASE_URL`、`CUSTOM_IMAGE_API_KEY` 和可选的 `CUSTOM_IMAGE_MODEL` 读取配置。自定义服务需要提供以下标准接口：
+
+```text
+POST {base_url}/images/generations
+  → {"data":[{"task_id":"...","status":"pending"}]}
+GET  {base_url}/tasks/{task_id}
+  → {"status":"pending"|"completed"|"failed", "result_urls":["https://..."]}
+```
+
+请求会使用 `prompt`、`size`、`quality`；参考图请求还会带 `image` URL。若服务支持本地参考图上传，应提供 `POST {base_url}/files/upload`，返回 `{"url":"https://..."}`。Key 只在后端环境使用，不进入前端或日志。
 - `MaizitechImageProvider` 在内部构造 `Authorization: Bearer <key>`；API key 不进入请求 JSON。
 - Provider 的 `_api_key`（`GPTImageProvider`）或 `api_key`（`MaizitechImageProvider`）不应写入日志、测试输出、commit 或文档。
 - Maizitech provider 的失败文本会替换 API key 为 `[REDACTED]` 后再抛出；不记录 raw authorization header。

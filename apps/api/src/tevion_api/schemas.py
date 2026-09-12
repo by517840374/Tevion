@@ -12,6 +12,19 @@ class ProductMetadata(BaseModel):
     provider_status: str = "not_configured"
 
 
+class ImageProviderConfigRequest(BaseModel):
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str = Field(min_length=1, max_length=1000)
+    model: str = Field(default="gpt-image-2", min_length=1, max_length=120)
+
+
+class ImageProviderConfigResponse(BaseModel):
+    configured: bool
+    base_url: str | None = None
+    model: str | None = None
+    api_key_configured: bool = False
+
+
 class TaskStatus(StrEnum):
     CREATED = "created"
     UNDERSTANDING = "understanding"
