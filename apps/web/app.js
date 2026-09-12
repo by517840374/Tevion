@@ -22,6 +22,8 @@ let selectedProjectId = sessionStorage.getItem(PROJECT_KEY) || '';
 let uploadedParentVersionId = null;
 let uploadedReferenceImages = [];
 let projectTasks = [];
+let taskPage = 1;
+const TASK_PAGE_SIZE = 6;
 const GENERATION_POLL_INTERVAL_MS = 3000;
 const GENERATION_POLL_TIMEOUT_MS = 300000;
 
@@ -238,8 +240,16 @@ function taskDataset(item) {
 function renderTaskList(items) {
   const target = $('taskList');
   if (!target) return;
-  if (!items.length) { target.innerHTML = '<p class="muted">当前项目暂无任务。</p>'; return; }
-  target.innerHTML = items.map(item => {
+  const pagination = $('taskPagination');
+  if (!items.length) {
+    target.innerHTML = '<p class="muted">当前项目暂无任务。</p>';
+    if (pagination) pagination.hidden = true;
+    return;
+  }
+  const pageCount = Math.max(1, Math.ceil(items.length / TASK_PAGE_SIZE));
+  taskPage = Math.min(Math.max(taskPage, 1), pageCount);
+  const visibleItems = items.slice((taskPage - 1) * TASK_PAGE_SIZE, taskPage * TASK_PAGE_SIZE);
+  target.innerHTML = visibleItems.map(item => {
     const status = String(item.status || 'unknown').toLowerCase();
     const images = Array.isArray(item.images) ? item.images : [];
     const count = item.actual_output_count ?? images.length;
@@ -251,6 +261,10 @@ function renderTaskList(items) {
     if (status === 'completed' && images.length) actions += '<button type="button" class="small-button" data-task-view="' + data + '">查看结果</button><button type="button" class="secondary-button" data-task-refine="' + data + '">进入 Refine</button>';
     return '<article class="task-card task-status-' + escapeHtml(status) + '" data-task-id="' + escapeHtml(item.task_id || '') + '"><div class="task-card-heading"><div><span class="task-status-badge">' + escapeHtml(taskStatusLabel(status)) + '</span><h3>' + escapeHtml(String(item.request || '未提供请求')) + '</h3></div><time>' + escapeHtml(taskDate(item.created_at)) + '</time></div><div class="task-card-meta"><span>' + escapeHtml(item.mode === 'refine' ? 'Refine' : 'Explore') + '</span><span>结果 ' + escapeHtml(String(count)) + ' / ' + escapeHtml(String(requested)) + '</span><span>run_id: ' + escapeHtml(item.run_id || '未提供') + '</span></div>' + (taskImageMarkup(item) ? '<div class="task-card-images">' + taskImageMarkup(item) + '</div>' : '') + (item.error_code ? '<p class="task-error">' + escapeHtml(String(item.error_code)) + '</p>' : '') + ((item.parent_run_id || item.parent_image_id) ? '<p class="task-lineage">parent：' + escapeHtml(item.parent_run_id || item.parent_image_id) + '</p>' : '') + (actions ? '<div class="task-actions">' + actions + '</div>' : '') + '</article>';
   }).join('');
+  if (pagination) {
+    pagination.hidden = pageCount <= 1;
+    pagination.innerHTML = '<button type="button" class="small-button" data-task-page="prev"' + (taskPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + taskPage + ' / ' + pageCount + ' 页 · 共 ' + items.length + ' 条</span><button type="button" class="small-button" data-task-page="next"' + (taskPage >= pageCount ? ' disabled' : '') + '>下一页</button>';
+  }
 }
 function renderTaskCenterMessage(message, error = false) {
   const status = $('taskCenterStatus');
@@ -265,6 +279,7 @@ async function loadProjectTasks(projectId = getProjectId()) {
   renderTaskCenterMessage('正在加载任务历史…');
   try {
     projectTasks = listPayload(await api('/projects/' + encodeURIComponent(projectId) + '/tasks'));
+    taskPage = 1;
     renderTaskList(projectTasks);
     renderTaskCenterMessage(projectTasks.length ? '已加载 ' + projectTasks.length + ' 个任务。' : '当前项目暂无任务。');
   } catch (err) {
@@ -638,7 +653,7 @@ function renderReferencePreview(images = []) {
     const selected = item.parent_version_id && item.parent_version_id === uploadedParentVersionId;
     return '<article class="reference-card' + (selected ? ' selected' : '') + '">' +
       '<button type="button" class="reference-preview-button" data-lightbox="' + escapeHtml(url) + '" aria-label="打开' + escapeHtml(alt) + '大图预览"><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><span>点击查看大图</span></button>' +
-      '<div class="reference-card-footer"><span>' + escapeHtml(alt) + '</span><button type="button" class="small-button reference-parent-button" data-reference-parent="' + escapeHtml(item.parent_version_id || '') + '"' + (item.parent_version_id ? '' : ' disabled') + '>' + (selected ? '当前精修图' : '设为精修图') + '</button></div>' +
+      '<div class="reference-card-footer"><button type="button" class="text-button reference-zoom-button" data-lightbox="' + escapeHtml(url) + '">放大预览</button><button type="button" class="small-button reference-parent-button" data-reference-parent="' + escapeHtml(item.parent_version_id || '') + '"' + (item.parent_version_id ? '' : ' disabled') + '>' + (selected ? '当前精修图' : '设为精修图') + '</button></div>' +
       '</article>';
   }).join('');
 }
@@ -1349,7 +1364,7 @@ $('refineImageFile')?.addEventListener('change', event => {
 $('referencePreview')?.addEventListener('click', event => {
   const preview = event.target.closest('[data-lightbox]');
   if (preview) {
-    const image = preview.querySelector('img');
+    const image = preview.querySelector('img') || preview.closest('.reference-card')?.querySelector('img');
     openLightbox(preview.dataset.lightbox, image?.alt || '参考图');
     return;
   }
@@ -1370,6 +1385,12 @@ $('historyProject')?.addEventListener('change', event => {
 $('historySession')?.addEventListener('change', event => loadHistoryVersions(event.target.value));
 $('projectSelect')?.addEventListener('change', event => handleProjectChange(event.target.value));
 $('taskCenterRetry')?.addEventListener('click', () => loadProjectTasks());
+$('taskPagination')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-task-page]');
+  if (!button || button.disabled) return;
+  taskPage += button.dataset.taskPage === 'next' ? 1 : -1;
+  renderTaskList(projectTasks);
+});
 $('taskList')?.addEventListener('click', event => {
   const button = event.target.closest('button');
   if (!button) return;
