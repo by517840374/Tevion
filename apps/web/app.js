@@ -973,7 +973,8 @@ function bindCandidateImages(root = $('results')) {
 }
 
 // 只把后端实际返回的图片替换进等待卡，不模拟进度或生成虚假 URL。
-function updateGenerationPlaceholders(images) {
+function updateGenerationPlaceholders(images, taskId) {
+  if (taskId && currentTask?.task_id !== taskId) return;
   const placeholders = Array.from(document.querySelectorAll('[data-generation-placeholder="true"]'));
   if (!placeholders.length || !images.length) return;
   images.forEach((image, index) => {
@@ -996,8 +997,8 @@ function renderRecoverableTask(message) {
   setCheckpoint('后端任务仍可通过任务详情查询；本页不声明 durable worker。');
 }
 
-async function pollTaskUntilComplete() {
-  const taskId = currentTask?.task_id;
+async function pollTaskUntilComplete(task = currentTask) {
+  const taskId = task?.task_id;
   if (!taskId) throw new Error('缺少任务 ID，无法恢复查询。');
   const deadline = Date.now() + GENERATION_POLL_TIMEOUT_MS;
   let lastDetail = null;
@@ -1015,7 +1016,7 @@ async function pollTaskUntilComplete() {
       }
     }
     const images = Array.isArray(lastDetail?.images) ? lastDetail.images : [];
-    if (images.length) updateGenerationPlaceholders(images);
+    if (images.length) updateGenerationPlaceholders(images, taskId);
     const status = String(lastDetail?.status || '').toLowerCase();
     if (status === 'completed' && images.length) return lastDetail;
     if (status === 'failed' || status === 'cancelled' || status === 'needs_user_review') throw new Error(lastDetail.error_message || '任务已结束但未返回图片（status=' + status + '）。');
@@ -1026,14 +1027,37 @@ async function pollTaskUntilComplete() {
   throw timeout;
 }
 
+async function trackAsyncGeneration(task) {
+  try {
+    const detail = await pollTaskUntilComplete(task);
+    if (currentTask?.task_id === task.task_id) {
+      currentTask.run_id = detail.run_id || currentTask.run_id;
+      currentTask.output_meta = detail;
+      renderResults(detail.images, detail);
+      toast('任务已完成：' + detail.images.length + ' 张候选已就绪。', 'success', 4000);
+    } else {
+      toast('后台任务 ' + task.task_id + ' 已完成，可在任务中心查看结果。', 'success', 5000);
+      loadProjectTasks().catch(() => {});
+    }
+  } catch (err) {
+    if (currentTask?.task_id !== task.task_id) return;
+    if (err.network || err.recoveryRequired) renderRecoverableTask(err.message || '暂时无法查询任务状态。');
+    else {
+      renderRecoverableTask(err.message || '任务查询未完成。');
+      toast('后台任务未完成：' + err.message, 'error', 9000);
+    }
+  }
+}
+
 async function resumeTaskQuery() {
   if (busy || !currentTask?.task_id) return;
+  const task = currentTask;
   setBusy(true);
   setGenerateLabel('生成中…');
   renderLoading(1, '继续查询生成任务', '只查询已创建的任务详情，不会重复提交生成。');
   startElapsed();
   try {
-    const detail = await pollTaskUntilComplete();
+    const detail = await pollTaskUntilComplete(task);
     currentTask.run_id = detail.run_id || currentTask.run_id;
     currentTask.output_meta = detail;
     renderResults(detail.images, detail);
@@ -1317,18 +1341,23 @@ async function handleGenerate({ reuse = false } = {}) {
       setCheckpoint('复用任务 ' + currentTask.task_id + '，重新生成候选…');
     }
 
-    // 2) 同步等待真实生成（约 30–120 秒）
+    // 2) 提交生成；若 Provider 异步，后续由后台按 task ID 查询
     renderLoading(1, '生成中，最长等待 5 分钟', '图片由真实后端管线生成，请保持本页打开，耐心等待。');
     startElapsed();
     setAgentPill('正在生成 ' + (currentTask.output_count || 4) + ' 张候选', 'busy');
 
+    const submittedTask = { ...currentTask };
     let resp = await api('/tasks/' + currentTask.task_id + '/generate', { method: 'POST' });
     let images = resp && Array.isArray(resp.images) ? resp.images : null;
 
-    // 同步接口若只确认任务仍在生成，则仅回查任务详情；不重复 POST，也不宣称 durable worker。
+    // 异步接口只负责提交；后续查询在后台进行，用户可以立即创建下一轮。
     if (!images || !images.length) {
       if (resp && ['generating', 'unknown'].includes(String(resp.status || '').toLowerCase())) {
-        resp = await pollTaskUntilComplete();
+        stopElapsed();
+        setAgentPill('已提交，后台生成中', 'busy');
+        setCheckpoint('任务 ' + submittedTask.task_id + ' 已提交，后台会通过 task ID 查询结果；现在可以创建新一轮。');
+        trackAsyncGeneration(submittedTask);
+        return;
       } else {
         const detail = await api('/tasks/' + currentTask.task_id);
         resp = { ...resp, ...detail };
