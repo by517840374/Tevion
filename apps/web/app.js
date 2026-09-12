@@ -902,8 +902,8 @@ function openLightbox(url, alt) {
     overlay.addEventListener('click', event => { if (event.target === overlay || event.target.closest('.lightbox-close')) closeLightbox(); });
     const closeButton = overlay.querySelector('.lightbox-close');
     const close = event => { event.preventDefault(); event.stopPropagation(); closeLightbox(); };
-    closeButton.onclick = close;
-    closeButton.onpointerdown = close;
+    closeButton.addEventListener('click', close, true);
+    closeButton.addEventListener('pointerup', close, true);
   }
   const image = overlay.querySelector('.lightbox-image');
   image.src = url;
@@ -931,12 +931,6 @@ document.addEventListener('keydown', event => {
 // 动态结果、任务历史和参考图统一走捕获阶段，避免容器重渲染后丢失预览事件。
 document.addEventListener('click', event => {
   const target = event.target;
-  if (target instanceof Element && (target.closest('.lightbox-close') || target.id === 'lightbox')) {
-    event.preventDefault();
-    event.stopPropagation();
-    closeLightbox();
-    return;
-  }
   const preview = target instanceof Element
     ? target.closest('[data-lightbox]')
     : event.composedPath?.().find(item => item instanceof Element && item.matches('[data-lightbox]'));
@@ -944,16 +938,6 @@ document.addEventListener('click', event => {
   event.preventDefault();
   event.stopPropagation();
   openLightbox(preview.getAttribute('data-lightbox'), preview.querySelector('img')?.alt || '图片大图');
-}, true);
-
-document.addEventListener('pointerdown', event => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  if (target.closest('.lightbox-close') || target.id === 'lightbox') {
-    event.preventDefault();
-    event.stopPropagation();
-    closeLightbox();
-  }
 }, true);
 
 function bindLightboxLinks(root) {
