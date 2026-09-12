@@ -900,7 +900,10 @@ function openLightbox(url, alt) {
     overlay.innerHTML = '<button type="button" class="lightbox-close" aria-label="关闭大图预览">×</button><img class="lightbox-image" alt=""><a class="lightbox-download" target="_blank" rel="noopener" download>下载原图 ↗</a>';
     document.body.appendChild(overlay);
     overlay.addEventListener('click', event => { if (event.target === overlay || event.target.closest('.lightbox-close')) closeLightbox(); });
-    overlay.querySelector('.lightbox-close').onclick = event => { event.preventDefault(); event.stopPropagation(); closeLightbox(); };
+    const closeButton = overlay.querySelector('.lightbox-close');
+    const close = event => { event.preventDefault(); event.stopPropagation(); closeLightbox(); };
+    closeButton.onclick = close;
+    closeButton.onpointerdown = close;
   }
   const image = overlay.querySelector('.lightbox-image');
   image.src = url;
@@ -941,6 +944,16 @@ document.addEventListener('click', event => {
   event.preventDefault();
   event.stopPropagation();
   openLightbox(preview.getAttribute('data-lightbox'), preview.querySelector('img')?.alt || '图片大图');
+}, true);
+
+document.addEventListener('pointerdown', event => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest('.lightbox-close') || target.id === 'lightbox') {
+    event.preventDefault();
+    event.stopPropagation();
+    closeLightbox();
+  }
 }, true);
 
 function bindLightboxLinks(root) {
