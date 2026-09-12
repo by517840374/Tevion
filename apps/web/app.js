@@ -279,6 +279,7 @@ function renderTaskList(items) {
     pagination.hidden = pageCount <= 1;
     pagination.innerHTML = '<button type="button" class="small-button" data-task-page="prev"' + (taskPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + taskPage + ' / ' + pageCount + ' 页 · 共 ' + items.length + ' 条</span><button type="button" class="small-button" data-task-page="next"' + (taskPage >= pageCount ? ' disabled' : '') + '>下一页</button>';
   }
+  bindLightboxLinks(target);
 }
 function renderTaskCenterMessage(message, error = false) {
   const status = $('taskCenterStatus');
@@ -405,9 +406,10 @@ function renderHistoryVersions(versions) {
   target.innerHTML = versions.map((version, index) => {
     const parent = version.parent_image_id ? '<span class="history-parent">parent_image_id: ' + escapeHtml(version.parent_image_id) + '</span>' : '<span class="history-parent">无 parent_image_id（根版本）</span>';
     const image = resolveImageUrl(version.url || version.asset_uri);
-    const preview = image ? '<img loading="lazy" alt="历史版本 ' + (index + 1) + '" src="' + escapeHtml(image) + '">' : '';
+    const preview = image ? '<button type="button" class="history-image-preview" data-lightbox="' + escapeHtml(image) + '" aria-label="打开历史版本 ' + (index + 1) + ' 大图预览"><img loading="lazy" alt="历史版本 ' + (index + 1) + '" src="' + escapeHtml(image) + '"></button>' : '';
     return '<article class="history-version"><div class="history-thumb">' + preview + '</div><div><strong>' + escapeHtml(version.id || '版本 ' + (index + 1)) + '</strong><small>run_id: ' + escapeHtml(version.run_id || '未提供') + '</small>' + parent + '</div></article>';
   }).join('');
+  bindLightboxLinks(target);
 }
 
 async function loadHistoryVersions(sessionId) {
@@ -701,6 +703,7 @@ function renderReferencePreview(images = []) {
       '<div class="reference-card-footer"><button type="button" class="text-button reference-zoom-button" data-lightbox="' + escapeHtml(url) + '">放大预览</button><div class="reference-card-actions"><button type="button" class="small-button reference-parent-button" data-reference-parent="' + escapeHtml(item.parent_version_id || '') + '"' + (item.parent_version_id ? '' : ' disabled') + '>' + (selected ? '当前精修图' : '设为精修图') + '</button><button type="button" class="text-button reference-delete-button" data-reference-delete="' + String(index) + '">删除</button></div></div>' +
       '</article>';
   }).join('');
+  bindLightboxLinks(target);
 }
 
 async function uploadReferenceImage(projectId, file) {
@@ -897,6 +900,7 @@ function openLightbox(url, alt) {
     overlay.innerHTML = '<button type="button" class="lightbox-close" aria-label="关闭大图预览">×</button><img class="lightbox-image" alt=""><a class="lightbox-download" target="_blank" rel="noopener" download>下载原图 ↗</a>';
     document.body.appendChild(overlay);
     overlay.addEventListener('click', event => { if (event.target === overlay || event.target.closest('.lightbox-close')) closeLightbox(); });
+    overlay.querySelector('.lightbox-close').onclick = event => { event.preventDefault(); event.stopPropagation(); closeLightbox(); };
   }
   const image = overlay.querySelector('.lightbox-image');
   image.src = url;
@@ -924,6 +928,12 @@ document.addEventListener('keydown', event => {
 // 动态结果、任务历史和参考图统一走捕获阶段，避免容器重渲染后丢失预览事件。
 document.addEventListener('click', event => {
   const target = event.target;
+  if (target instanceof Element && (target.closest('.lightbox-close') || target.id === 'lightbox')) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeLightbox();
+    return;
+  }
   const preview = target instanceof Element
     ? target.closest('[data-lightbox]')
     : event.composedPath?.().find(item => item instanceof Element && item.matches('[data-lightbox]'));
@@ -932,6 +942,17 @@ document.addEventListener('click', event => {
   event.stopPropagation();
   openLightbox(preview.getAttribute('data-lightbox'), preview.querySelector('img')?.alt || '图片大图');
 }, true);
+
+function bindLightboxLinks(root) {
+  root?.querySelectorAll('[data-lightbox]').forEach(link => {
+    link.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openLightbox(link.getAttribute('data-lightbox'), link.querySelector('img')?.alt || '图片大图');
+      return false;
+    };
+  });
+}
 
 function candidateRoundMarkup(images, roundIndex) {
   const cards = images.map((img, i) => {
@@ -1002,6 +1023,7 @@ function renderResults(images, outputMeta = {}, { append = false, useState = fal
     }, { once: true });
   });
   $('regenerate').addEventListener('click', startNewGeneration);
+  bindLightboxLinks(r);
   setBusy(false);
   setGenerateLabel('再次生成视觉方案');
   setAgentPill('已生成 ' + images.length + ' 张候选', 'done');
@@ -1034,6 +1056,7 @@ function bindCandidateImages(root = $('results')) {
       toast('候选图加载失败，可尝试「重新生成」。', 'error');
     }, { once: true });
   });
+  bindLightboxLinks(root);
 }
 
 // 只把后端实际返回的图片替换进等待卡，不模拟进度或生成虚假 URL。

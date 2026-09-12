@@ -17,6 +17,7 @@
 .history-version{display:grid;grid-template-columns:54px 1fr;gap:9px;padding:9px;border:1px solid var(--line);background:rgba(28,33,30,.7);border-radius:5px;min-width:0}
 .history-thumb{width:54px;height:62px;border-radius:3px;background:#252b26;overflow:hidden;display:grid;place-items:center}
 .history-thumb img{width:100%;height:100%;object-fit:cover}
+.history-image-preview{display:block;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:zoom-in}
 .history-version strong,.history-version small,.history-parent{display:block;overflow-wrap:anywhere}
 .history-version strong{font-size:11px;color:var(--ink)}
 .history-version small,.history-parent{font-size:10px;color:var(--muted);margin-top:4px}
