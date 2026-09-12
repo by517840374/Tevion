@@ -23,6 +23,7 @@ let uploadedParentVersionId = null;
 let uploadedReferenceImages = [];
 let referenceUploadInFlight = false;
 let projectTasks = [];
+let generationRounds = [];
 let taskPage = 1;
 const TASK_PAGE_SIZE = 6;
 const GENERATION_POLL_INTERVAL_MS = 3000;
@@ -784,6 +785,7 @@ function renderSelectedParent() {
 function resetResults(msg) {
   stopElapsed();
   chosenId = null;
+  generationRounds = [];
   renderRefineContext();
   const r = $('results');
   r.className = 'empty-results panel';
@@ -802,6 +804,7 @@ function resetResults(msg) {
 
 function renderLoading(stepIdx, mainText, subText) {
   const r = $('results');
+  const previousResults = generationRounds.length ? r.innerHTML : '';
   r.className = 'results panel';
   r.setAttribute('aria-live', 'polite');
   r.setAttribute('aria-busy', 'true');
@@ -812,7 +815,7 @@ function renderLoading(stepIdx, mainText, subText) {
       Array.from({ length: count }, (_, i) => '<article class="candidate candidate-placeholder" data-generation-placeholder="true" aria-label="候选 ' + (i + 1) + ' 正在等待真实图片"><div class="img-wrap placeholder-wrap" style="aspect-ratio:4/5;background:linear-gradient(110deg,#1c211e 30%,#303a31 45%,#1c211e 60%);background-size:200% 100%;animation:placeholder-shimmer 2.4s ease-in-out infinite"><div class="placeholder-label">候选 ' + String(i + 1).padStart(2, '0') + '<br><span>等待真实图片</span></div></div><div class="candidate-meta"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span><span class="muted">后端返回后显示</span></div></article>').join('') +
       '</div>'
     : '';
-  r.innerHTML =
+  r.innerHTML = previousResults +
     '<div class="loading-block">' +
       '<div class="spinner"></div>' +
       '<h3>' + escapeHtml(mainText) + '</h3>' +
@@ -821,6 +824,11 @@ function renderLoading(stepIdx, mainText, subText) {
         steps.map((s, i) => '<span class="step ' + (i < stepIdx ? 'done' : i === stepIdx ? 'active' : '') + '">' + (i < stepIdx ? '✓ ' : '') + s + '</span>').join('') +
       '</div>' +
     '</div>' + placeholders;
+  if (previousResults) {
+    const regenerate = r.querySelector('#regenerate');
+    if (regenerate) regenerate.addEventListener('click', startNewGeneration);
+    bindCandidateImages(r);
+  }
 }
 
 function startElapsed() {
@@ -872,10 +880,38 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') closeLightbox();
 });
 
-function renderResults(images, outputMeta = {}) {
+function candidateRoundMarkup(images, roundIndex) {
+  const cards = images.map((img, i) => {
+    const w = img.width || 1, h = img.height || 1;
+    const dims = (img.width && img.height) ? img.width + '×' + img.height : '';
+    return (
+      '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(img.url) + '">' +
+        '<div class="img-wrap" style="aspect-ratio:' + w + '/' + h + '">' +
+          '<div class="img-loader">加载图片 ' + (i + 1) + '</div>' +
+          '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
+        '</div>' +
+        '<div class="candidate-meta">' +
+          '<div class="card-info"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' + (dims ? '<span class="card-dims">' + dims + '</span>' : '') + '</div>' +
+          '<a class="text-button candidate-download" href="' + escapeHtml(img.url) + '" target="_blank" rel="noopener" download="tevion-round-' + String(roundIndex + 1) + '-candidate-' + String(i + 1) + '.png" aria-label="下载第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '">下载</a>' +
+          '<button type="button" class="select-candidate" aria-label="选择第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
+          '<button type="button" class="reject-candidate" aria-label="拒绝第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button>' +
+        '</div>' +
+      '</article>'
+    );
+  }).join('');
+  const taskId = generationRounds[roundIndex]?.taskId || '';
+  return '<section class="generation-round" data-round="' + String(roundIndex + 1) + '"><div class="round-heading"><strong>第 ' + String(roundIndex + 1) + ' 轮</strong>' + (taskId ? '<span>task_id: ' + escapeHtml(taskId) + '</span>' : '') + '</div><div class="candidate-grid">' + cards + '</div></section>';
+}
+
+function renderResults(images, outputMeta = {}, { append = false, useState = false } = {}) {
   stopElapsed();
   chosenId = null;
   renderRefineContext();
+  const round = { images: Array.isArray(images) ? images : [], meta: outputMeta, taskId: currentTask?.task_id || outputMeta.task_id || '' };
+  if (!useState) {
+    if (append) generationRounds.push(round);
+    else generationRounds = [round];
+  }
   const r = $('results');
   r.className = 'results panel';
   r.setAttribute('aria-busy', 'false');
@@ -889,27 +925,7 @@ function renderResults(images, outputMeta = {}) {
     : '请求 ' + requested + ' 张 · 实际 ' + actual + ' 张 · 少 ' + shortfall + ' 张' + (completeness ? '（' + escapeHtml(String(completeness)) + '）' : '');
   $('resultsMeta').textContent = quantityNote + ' · 已就绪';
 
-  const cards = images.map((img, i) => {
-    const w = img.width || 1, h = img.height || 1;
-    const dims = (img.width && img.height) ? img.width + '×' + img.height : '';
-    return (
-      '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(img.url) + '">' +
-        '<div class="img-wrap" style="aspect-ratio:' + w + '/' + h + '">' +
-          '<div class="img-loader">加载图片 ' + (i + 1) + '</div>' +
-          '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
-        '</div>' +
-        '<div class="candidate-meta">' +
-          '<div class="card-info">' +
-            '<span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' +
-            (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
-          '</div>' +
-          '<a class="text-button candidate-download" href="' + escapeHtml(img.url) + '" target="_blank" rel="noopener" download="tevion-candidate-' + String(i + 1) + '.png" aria-label="下载候选 ' + (i + 1) + '">下载</a>' +
-          '<button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
-          '<button type="button" class="reject-candidate" aria-label="拒绝候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button>' +
-        '</div>' +
-      '</article>'
-    );
-  }).join('');
+  const cards = generationRounds.map((item, index) => candidateRoundMarkup(item.images, index)).join('');
 
   r.innerHTML =
     '<div class="result-top">' +
@@ -917,7 +933,7 @@ function renderResults(images, outputMeta = {}) {
       '<div class="result-actions"><span class="muted" id="selectionNote"></span><button class="regen-button" id="regenerate">新建一轮 ↻</button><span class="live-pill"><span class="status-dot"></span> 已完成</span></div>' +
     '</div>' +
     '<div class="candidate-count" role="status">' + quantityNote + '。' + (shortfall ? '本次以实际返回为准，拼图内容仍算一张候选图。' : '') + '</div>' +
-    '<div class="candidate-grid">' + cards + '</div>' +
+    cards +
     '<p class="result-hint">' + quantityNote + '。选择、拒绝和继续当前方向都会提交为反馈事件，帮助 Agent 更快收敛。</p>';
 
   // 图片加载完成 → 淡入（灰底占位 → 真实图）
@@ -1031,11 +1047,22 @@ async function trackAsyncGeneration(task) {
   try {
     const detail = await pollTaskUntilComplete(task);
     if (currentTask?.task_id === task.task_id) {
+      currentTask.pending = false;
       currentTask.run_id = detail.run_id || currentTask.run_id;
       currentTask.output_meta = detail;
-      renderResults(detail.images, detail);
+      renderResults(detail.images, detail, { append: true });
       toast('任务已完成：' + detail.images.length + ' 张候选已就绪。', 'success', 4000);
     } else {
+      generationRounds.push({
+        images: Array.isArray(detail?.images) ? detail.images : [],
+        meta: detail,
+        taskId: task.task_id,
+      });
+      // 另一轮可能先完成；先把它补进页面，当前轮次的 loading 状态再接回去。
+      if (currentTask?.pending) {
+        renderResults([], detail, { useState: true });
+        renderLoading(1, '生成中，最长等待 5 分钟', '当前轮次仍在后台生成，已完成的轮次不会被覆盖。');
+      }
       toast('后台任务 ' + task.task_id + ' 已完成，可在任务中心查看结果。', 'success', 5000);
       loadProjectTasks().catch(() => {});
     }
@@ -1058,6 +1085,7 @@ async function resumeTaskQuery() {
   startElapsed();
   try {
     const detail = await pollTaskUntilComplete(task);
+    currentTask.pending = false;
     currentTask.run_id = detail.run_id || currentTask.run_id;
     currentTask.output_meta = detail;
     renderResults(detail.images, detail);
@@ -1356,6 +1384,8 @@ async function handleGenerate({ reuse = false } = {}) {
         stopElapsed();
         setAgentPill('已提交，后台生成中', 'busy');
         setCheckpoint('任务 ' + submittedTask.task_id + ' 已提交，后台会通过 task ID 查询结果；现在可以创建新一轮。');
+        currentTask.pending = true;
+        submittedTask.pending = true;
         trackAsyncGeneration(submittedTask);
         return;
       } else {
@@ -1369,8 +1399,9 @@ async function handleGenerate({ reuse = false } = {}) {
       throw new Error('生成接口未返回图片（status=' + status + '）。请确认后端 generate 已返回 images 数组。');
     }
     currentTask.run_id = resp.run_id || currentTask.run_id;
+    currentTask.pending = false;
     currentTask.output_meta = resp;
-    renderResults(images, resp);
+    renderResults(images, resp, { append: true });
     toast('生成完成：' + images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
     stopElapsed();
