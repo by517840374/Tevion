@@ -224,3 +224,40 @@ def test_existing_preference_read_contract_remains_compatible(db_override: None)
     assert response.status_code == 200
     assert response.json()["items"][0]["key"] == "legacy"
     assert response.json()["items"][0]["confidence"] == 0.7
+
+
+def test_project_memory_reads_feedback_across_recent_sessions(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as db:
+        user = m.User(auth_provider="oidc", provider_subject="issue104-project-memory")
+        project = m.Project(user=user, name="Shared project")
+        sessions = []
+        images = []
+        for index in range(2):
+            session = m.Session(project=project, mode="explore", raw_request=f"portrait {index}", status="created")
+            run = m.GenerationRun(session=session, strategy_version="default", status="completed")
+            image = m.ImageVersion(run=run, asset_uri=f"s3://image-{index}.png")
+            sessions.append(session)
+            images.append(image)
+        db.add(user)
+        db.commit()
+        first_task_id = sessions[0].id
+        task_ids = [session.id for session in sessions]
+        image_ids = [image.id for image in images]
+    engine.dispose()
+
+    for image_id, task_id in zip(image_ids, task_ids, strict=True):
+        response = client.post(
+            f"/api/v1/tasks/{task_id}/feedback",
+            json={"version_id": image_id, "selected": True},
+            headers=_auth("issue104-project-memory"),
+        )
+        assert response.status_code == 201
+
+    response = client.get(
+        "/api/v1/preferences",
+        params={"scope": "project", "task_id": first_task_id},
+        headers=_auth("issue104-project-memory"),
+    )
+    assert response.status_code == 200
+    assert {item["value"] for item in response.json()["items"] if item["key"] == "image_version_id"} == set(image_ids)

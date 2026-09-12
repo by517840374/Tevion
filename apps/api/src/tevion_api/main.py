@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile, status
@@ -67,6 +68,8 @@ from .schemas import (
     TaskStatus,
     TaskSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tevion Product API", version="0.1.0")
 
@@ -812,8 +815,7 @@ def get_preferences(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    return PreferenceListResponse(
-        items=[
+    items = [
             PreferenceView(
                 key=item.key,
                 value=item.value,
@@ -828,7 +830,13 @@ def get_preferences(
             )
             for item in projected
         ]
+    logger.info(
+        "preferences_read task_id=%s scope=%s projected_count=%d",
+        task_id,
+        scope,
+        len(items),
     )
+    return PreferenceListResponse(items=items)
 
 
 def _preference_response(event: object) -> PreferenceMutationResponse:
