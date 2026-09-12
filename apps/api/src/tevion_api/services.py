@@ -959,7 +959,22 @@ def execute_generation(
     )
     try:
         result: GenerationResult | None = None
-        if parameters.get("parent_image_id") and hasattr(provider, "edit_image"):
+        if parameters.get("parent_image_id") and hasattr(provider, "upload_image") and hasattr(provider, "submit"):
+            parent_id = parameters.get("parent_image_id")
+            parent = db.get(ImageVersion, parent_id) if isinstance(parent_id, str) else None
+            if parent is None:
+                raise AssetError("parent asset not found")
+            if asset_store is None:
+                asset_store = build_asset_store()
+            if parent.asset_uri.startswith(("http://", "https://")):
+                parent_bytes, parent_mime_type = asset_store.read_source(parent.asset_uri)
+            else:
+                parent_bytes = asset_store.read(parent.asset_uri)
+                parent_mime_type = parent.mime_type or "image/png"
+            uploaded = provider.upload_image(parent_bytes, parent_mime_type)  # type: ignore[attr-defined]
+            request = replace(request, image=[uploaded.url])
+            operation = provider.submit(request)  # type: ignore[attr-defined]
+        elif parameters.get("parent_image_id") and hasattr(provider, "edit_image"):
             parent_id = parameters.get("parent_image_id")
             parent = db.get(ImageVersion, parent_id) if isinstance(parent_id, str) else None
             if parent is None:
@@ -985,6 +1000,9 @@ def execute_generation(
             operation = provider.resume(run.provider_request_id)  # type: ignore[attr-defined]
         elif hasattr(provider, "submit"):
             operation = provider.submit(request)  # type: ignore[attr-defined]
+        else:
+            operation = None
+        if operation is not None:
             if operation.provider_request_id:
                 run.provider_request_id = operation.provider_request_id
                 db.commit()
@@ -1012,11 +1030,7 @@ def execute_generation(
                 return []
             if operation.status is ProviderOperationStatus.FAILED:
                 raise ProviderResponseError(operation.error_message or "provider task failed")
-        else:
-            operation = None
-        if parameters.get("parent_image_id") and hasattr(provider, "edit_image"):
-            pass
-        else:
+        if result is None:
             result = operation.result if operation is not None else provider.generate(request)
         if result is None:
             raise ProviderResponseError("provider operation returned no result")

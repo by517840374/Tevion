@@ -236,7 +236,7 @@ function taskDate(value) {
 function taskImageMarkup(item) {
   return (Array.isArray(item.images) ? item.images : []).map((image, index) => {
     const value = typeof image === 'string' ? { url: image } : (image || {});
-    return value.url ? '<img loading="lazy" alt="任务结果 ' + (index + 1) + '" src="' + escapeHtml(value.url) + '">' : '';
+    return value.url ? '<button type="button" class="task-image-preview" data-lightbox="' + escapeHtml(value.url) + '" aria-label="打开任务结果 ' + (index + 1) + ' 大图预览"><img loading="lazy" alt="任务结果 ' + (index + 1) + '" src="' + escapeHtml(value.url) + '"></button>' : '';
   }).join('');
 }
 function taskDataset(item) {
@@ -1477,6 +1477,11 @@ $('taskPagination')?.addEventListener('click', event => {
   renderTaskList(projectTasks);
 });
 $('taskList')?.addEventListener('click', event => {
+  const preview = event.target.closest('[data-lightbox]');
+  if (preview) {
+    openLightbox(preview.dataset.lightbox, preview.querySelector('img')?.alt || '任务结果');
+    return;
+  }
   const button = event.target.closest('button');
   if (!button) return;
   const task = parseTaskData(button.dataset.taskContinue || button.dataset.taskRetry || button.dataset.taskView || button.dataset.taskRefine);
@@ -1495,6 +1500,11 @@ $('projectManagementList')?.addEventListener('click', event => {
   loadProjects();
 });
 $('results').addEventListener('click', e => {
+  const preview = e.target.closest('[data-lightbox]');
+  if (preview) {
+    openLightbox(preview.dataset.lightbox, preview.querySelector('img')?.alt || '候选图片');
+    return;
+  }
   const sel = e.target.closest('[data-select]');
   if (sel) {
     selectCandidate(sel.dataset.select);
