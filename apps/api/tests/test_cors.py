@@ -25,6 +25,7 @@ def test_local_defaults_allow_common_frontend_origins(monkeypatch) -> None:
     assert "http://localhost:3000" in settings.allowed_origins
     assert "http://127.0.0.1:3000" in settings.allowed_origins
     assert "http://127.0.0.1:5173" in settings.allowed_origins
+    assert "null" in settings.allowed_origins
     assert settings.allow_credentials is False
 
 
@@ -55,6 +56,15 @@ def test_cors_values_are_configurable_from_environment(monkeypatch) -> None:
     ]
     assert settings.allowed_methods == ["GET", "POST", "OPTIONS"]
     assert settings.allowed_headers == ["Authorization", "Content-Type", "X-Request-ID"]
+
+
+def test_local_explicit_origins_also_allow_file_pages(monkeypatch) -> None:
+    monkeypatch.setenv("TEVION_ENVIRONMENT", "local")
+    monkeypatch.setenv("TEVION_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:4173")
+
+    settings = get_cors_settings()
+
+    assert settings.allowed_origins == ["http://127.0.0.1:4173", "null"]
 
 
 def test_allowed_origin_supports_bearer_preflight_without_credentials(monkeypatch) -> None:

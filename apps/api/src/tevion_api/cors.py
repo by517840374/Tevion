@@ -19,6 +19,7 @@ _ALLOWED_METHODS = "TEVION_CORS_ALLOWED_METHODS"
 _ALLOWED_HEADERS = "TEVION_CORS_ALLOWED_HEADERS"
 
 _LOCAL_ORIGINS = [
+    "null",  # local file:// pages; never enabled by the production policy
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:8000",
@@ -52,6 +53,8 @@ def get_cors_settings() -> CorsSettings:
     configured_origins = os.environ.get(_ALLOWED_ORIGINS)
     if configured_origins is not None:
         allowed_origins = _csv(configured_origins, [])
+        if environment in {"local", "dev", "development"} and "null" not in allowed_origins:
+            allowed_origins.append("null")
     elif environment in {"local", "dev", "development"}:
         allowed_origins = _LOCAL_ORIGINS.copy()
     else:
