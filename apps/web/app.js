@@ -42,6 +42,10 @@ function setBusy(b) {
   const regen = document.querySelector('.regen-button');
   if (regen) regen.disabled = b;
 }
+function setGenerateLabel(text) {
+  const button = $('generate');
+  if (button) button.innerHTML = escapeHtml(text) + ' <span aria-hidden="true">→</span>';
+}
 
 async function api(path, { method = 'GET', body, auth = true } = {}) {
   const headers = {};
@@ -906,6 +910,7 @@ function renderResults(images, outputMeta = {}) {
     handleGenerate();
   });
   setBusy(false);
+  setGenerateLabel('再次生成视觉方案');
   setAgentPill('已生成 ' + images.length + ' 张候选', 'done');
   setCheckpoint('候选已生成：选择、拒绝或重新生成都将留下反馈记录。');
 }
@@ -997,6 +1002,7 @@ async function pollTaskUntilComplete() {
 async function resumeTaskQuery() {
   if (busy || !currentTask?.task_id) return;
   setBusy(true);
+  setGenerateLabel('生成中…');
   renderLoading(1, '继续查询生成任务', '只查询已创建的任务详情，不会重复提交生成。');
   startElapsed();
   try {
@@ -1011,6 +1017,9 @@ async function resumeTaskQuery() {
       renderRecoverableTask(err.message || '任务查询未完成。');
       toast('任务查询未完成：' + err.message, 'error', 9000);
     }
+  } finally {
+    setBusy(false);
+    setGenerateLabel('再次生成视觉方案');
   }
 }
 
@@ -1249,6 +1258,7 @@ async function handleGenerate({ reuse = false } = {}) {
   if (!currentTask || !currentTask.task_id && !reuse && !currentTask.request) return;
 
   setBusy(true);
+  setGenerateLabel('生成中…');
   if (reuse) chosenId = null;
 
   try {
@@ -1328,6 +1338,9 @@ async function handleGenerate({ reuse = false } = {}) {
     r.querySelector('#errBack').addEventListener('click', () => { currentTask = null; resetResults(); });
     setAgentPill('出错了', 'busy');
     setCheckpoint('生成未完成。可按上方按钮重试，或检查后端日志。');
+  } finally {
+    setBusy(false);
+    if (!busy) setGenerateLabel('再次生成视觉方案');
   }
 }
 
