@@ -905,7 +905,7 @@ function openLightbox(url, alt) {
   download.href = url;
   download.download = (alt || 'tevion-image').replace(/[^\w\u4e00-\u9fff-]+/g, '-').slice(0, 80) + '.png';
   overlay.hidden = false;
-  overlay.style.display = 'grid';
+  overlay.style.cssText += ';display:grid!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:auto!important';
   document.body.classList.add('lightbox-open');
   overlay.querySelector('.lightbox-close').focus();
 }
@@ -924,7 +924,9 @@ document.addEventListener('keydown', event => {
 // 动态结果、任务历史和参考图统一走捕获阶段，避免容器重渲染后丢失预览事件。
 document.addEventListener('click', event => {
   const target = event.target;
-  const preview = target instanceof Element ? target.closest('[data-lightbox]') : null;
+  const preview = target instanceof Element
+    ? target.closest('[data-lightbox]')
+    : event.composedPath?.().find(item => item instanceof Element && item.matches('[data-lightbox]'));
   if (!preview) return;
   event.preventDefault();
   event.stopPropagation();
