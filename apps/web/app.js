@@ -79,6 +79,12 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
   return data;
 }
 
+function resolveImageUrl(value) {
+  const url = String(value || '');
+  if (!url || /^(https?:|data:|blob:)/i.test(url)) return url;
+  try { return new URL(url, API_BASE.replace(/\/$/, '') + '/').href; } catch { return url; }
+}
+
 function friendlyHttpError(status) {
   if (status === 401 || status === 403) return '登录已失效或无权限，请重新「演示登录」。';
   if (status === 404) return '接口不存在（HTTP 404）：后端该端点尚未实现或路径不符，请等待后端联调。';
@@ -238,7 +244,8 @@ function taskDate(value) {
 function taskImageMarkup(item) {
   return (Array.isArray(item.images) ? item.images : []).map((image, index) => {
     const value = typeof image === 'string' ? { url: image } : (image || {});
-    return value.url ? '<button type="button" class="task-image-preview" data-lightbox="' + escapeHtml(value.url) + '" aria-label="打开任务结果 ' + (index + 1) + ' 大图预览"><img loading="lazy" alt="任务结果 ' + (index + 1) + '" src="' + escapeHtml(value.url) + '"></button>' : '';
+    const imageUrl = resolveImageUrl(value.url);
+    return imageUrl ? '<button type="button" class="task-image-preview" data-lightbox="' + escapeHtml(imageUrl) + '" aria-label="打开任务结果 ' + (index + 1) + ' 大图预览"><img loading="lazy" alt="任务结果 ' + (index + 1) + '" src="' + escapeHtml(imageUrl) + '"></button>' : '';
   }).join('');
 }
 function taskDataset(item) {
@@ -397,7 +404,7 @@ function renderHistoryVersions(versions) {
   }
   target.innerHTML = versions.map((version, index) => {
     const parent = version.parent_image_id ? '<span class="history-parent">parent_image_id: ' + escapeHtml(version.parent_image_id) + '</span>' : '<span class="history-parent">无 parent_image_id（根版本）</span>';
-    const image = version.url || version.asset_uri;
+    const image = resolveImageUrl(version.url || version.asset_uri);
     const preview = image ? '<img loading="lazy" alt="历史版本 ' + (index + 1) + '" src="' + escapeHtml(image) + '">' : '';
     return '<article class="history-version"><div class="history-thumb">' + preview + '</div><div><strong>' + escapeHtml(version.id || '版本 ' + (index + 1)) + '</strong><small>run_id: ' + escapeHtml(version.run_id || '未提供') + '</small>' + parent + '</div></article>';
   }).join('');
@@ -686,7 +693,7 @@ function renderReferencePreview(images = []) {
   if (!target) return;
   target.hidden = !images.length;
   target.innerHTML = images.map((item, index) => {
-    const url = item.url || item.previewUrl;
+    const url = resolveImageUrl(item.url || item.previewUrl);
     const alt = item.name || ('参考图 ' + (index + 1));
     const selected = item.parent_version_id && item.parent_version_id === uploadedParentVersionId;
     return '<article class="reference-card' + (selected ? ' selected' : '') + '">' +
@@ -877,6 +884,8 @@ function stopElapsed() {
 }
 
 function openLightbox(url, alt) {
+  url = resolveImageUrl(url);
+  if (!url) return;
   let overlay = $('lightbox');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -913,17 +922,18 @@ document.addEventListener('keydown', event => {
 
 function candidateRoundMarkup(images, roundIndex) {
   const cards = images.map((img, i) => {
+    const imageUrl = resolveImageUrl(img.url);
     const w = img.width || 1, h = img.height || 1;
     const dims = (img.width && img.height) ? img.width + '×' + img.height : '';
     return (
-      '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(img.url) + '">' +
+      '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(imageUrl) + '">' +
         '<div class="img-wrap" style="aspect-ratio:' + w + '/' + h + '">' +
           '<div class="img-loader">加载图片 ' + (i + 1) + '</div>' +
-          '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
+          '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(imageUrl) + '" aria-label="打开第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '" src="' + escapeHtml(imageUrl) + '"></button>' +
         '</div>' +
         '<div class="candidate-meta">' +
           '<div class="card-info"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' + (dims ? '<span class="card-dims">' + dims + '</span>' : '') + '</div>' +
-          '<a class="text-button candidate-download" href="' + escapeHtml(img.url) + '" target="_blank" rel="noopener" download="tevion-round-' + String(roundIndex + 1) + '-candidate-' + String(i + 1) + '.png" aria-label="下载第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '">下载</a>' +
+          '<a class="text-button candidate-download" href="' + escapeHtml(imageUrl) + '" target="_blank" rel="noopener" download="tevion-round-' + String(roundIndex + 1) + '-candidate-' + String(i + 1) + '.png" aria-label="下载第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '">下载</a>' +
           '<button type="button" class="select-candidate" aria-label="选择第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
           '<button type="button" class="reject-candidate" aria-label="拒绝第 ' + (roundIndex + 1) + ' 轮候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button>' +
         '</div>' +
@@ -986,15 +996,16 @@ function renderResults(images, outputMeta = {}, { append = false, useState = fal
 }
 
 function candidateCardMarkup(img, i) {
+  const imageUrl = resolveImageUrl(img.url);
   const w = img.width || 1, h = img.height || 1;
   const dims = (img.width && img.height) ? img.width + '×' + img.height : '';
-  return '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(img.url) + '">' +
+  return '<article class="candidate" data-id="' + escapeHtml(img.id) + '" data-url="' + escapeHtml(imageUrl) + '">' +
     '<div class="img-wrap" style="aspect-ratio:' + w + '/' + h + '">' +
       '<div class="img-loader">加载图片 ' + (i + 1) + '</div>' +
-      '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
+      '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(imageUrl) + '" aria-label="打开候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(imageUrl) + '"></button>' +
     '</div><div class="candidate-meta"><div class="card-info"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' +
     (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
-    '</div><a class="text-button candidate-download" href="' + escapeHtml(img.url) + '" target="_blank" rel="noopener" download="tevion-candidate-' + String(i + 1) + '.png" aria-label="下载候选 ' + (i + 1) + '">下载</a><button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
+    '</div><a class="text-button candidate-download" href="' + escapeHtml(imageUrl) + '" target="_blank" rel="noopener" download="tevion-candidate-' + String(i + 1) + '.png" aria-label="下载候选 ' + (i + 1) + '">下载</a><button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
     '<button type="button" class="reject-candidate" aria-label="拒绝候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button></div></article>';
 }
 
