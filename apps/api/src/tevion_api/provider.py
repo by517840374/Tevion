@@ -1,6 +1,8 @@
 import base64
 import binascii
+import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Protocol
@@ -419,15 +421,13 @@ class MaizitechImageProvider:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
-    def _submit(self, request: GenerationRequest) -> tuple[str, list[dict[str, Any]]]:
+    def _submit_one(self, request: GenerationRequest) -> tuple[str, list[dict[str, Any]]]:
         payload: dict[str, Any] = {
             "model": self.model_name,
             "prompt": request.prompt,
             "size": request.aspect_ratio,
             "quality": request.quality,
         }
-        if request.output_count > 1:
-            payload["n"] = request.output_count
         if request.image:
             payload["image"] = request.image
         response = self._client.post(f"{self.base_url}/images/generations", headers=self._headers(), json=payload)
@@ -441,6 +441,25 @@ class MaizitechImageProvider:
         if not isinstance(task_id, str) or not task_id:
             raise ProviderResponseError("provider returned no task id")
         return task_id, []
+
+    @staticmethod
+    def _batch_request_id(task_ids: list[str]) -> str:
+        return "batch:" + json.dumps(task_ids, separators=(",", ":"))
+
+    @staticmethod
+    def _batch_task_ids(provider_request_id: str) -> list[str] | None:
+        if not provider_request_id.startswith("batch:"):
+            return None
+        try:
+            task_ids = json.loads(provider_request_id[6:])
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(task_ids, list) or not all(isinstance(item, str) and item for item in task_ids):
+            return None
+        return task_ids
+
+    def _submit(self, request: GenerationRequest) -> tuple[str, list[dict[str, Any]]]:
+        return self._submit_one(request)
 
     @staticmethod
     def _upload_filename(mime_type: str) -> str:
@@ -487,7 +506,8 @@ class MaizitechImageProvider:
         raise ProviderResponseError("Maizitech upload retries exhausted")
 
     def edit_image(
-        self, *, prompt: str, image: bytes, mime_type: str, parent_image_id: str, parent_run_id: str, owner_id: str
+        self, *, prompt: str, image: bytes, mime_type: str, parent_image_id: str, parent_run_id: str, owner_id: str,
+        output_count: int = 1,
     ) -> GenerationResult:
         for value, message in (
             (parent_image_id, "parent image id is required"),
@@ -497,7 +517,7 @@ class MaizitechImageProvider:
             if not value.strip():
                 raise ProviderConfigError(message)
         uploaded = self.upload_image(image, mime_type)
-        result = self.generate(GenerationRequest(prompt=prompt, output_count=1, image=[uploaded.url]))
+        result = self.generate(GenerationRequest(prompt=prompt, output_count=output_count, image=[uploaded.url]))
         metadata = {
             **(result.metadata or {}),
             "operation": "image_to_image",
@@ -510,6 +530,44 @@ class MaizitechImageProvider:
 
     def submit(self, request: GenerationRequest) -> ProviderOperationResult:
         """Submit exactly once and return the provider ID before polling."""
+        if request.output_count > 1:
+            # Maizitech ignores n, so submit bounded single-image jobs in
+            # parallel and return immediately with a recoverable batch ID.
+            with ThreadPoolExecutor(max_workers=request.output_count) as executor:
+                futures = [
+                    executor.submit(self._submit_one, replace(request, output_count=1))
+                    for _ in range(request.output_count)
+                ]
+                try:
+                    submitted = [future.result() for future in futures]
+                except (httpx.TimeoutException, httpx.TransportError) as error:
+                    return ProviderOperationResult(
+                        ProviderOperationStatus.UNKNOWN,
+                        None,
+                        error_code="submit_unknown",
+                        error_message=self._redact(str(error)),
+                    )
+            immediate = [item for _, items in submitted for item in items if item.get("url")]
+            task_ids = [task_id for task_id, _ in submitted if task_id]
+            if immediate and len(immediate) == request.output_count:
+                result = GenerationResult(
+                    provider_name=self.provider_name,
+                    provider_request_id="",
+                    model_name=self.model_name,
+                    asset_urls=[item["url"] for item in immediate],
+                    latency_ms=0,
+                    metadata_source="provider_response",
+                    requested_count=request.output_count,
+                )
+                return ProviderOperationResult(ProviderOperationStatus.COMPLETED, None, result=result)
+            if len(task_ids) != request.output_count:
+                return ProviderOperationResult(
+                    ProviderOperationStatus.UNKNOWN,
+                    self._batch_request_id(task_ids) if task_ids else None,
+                    error_code="submit_unknown",
+                    error_message="one or more batched provider requests could not be correlated",
+                )
+            return ProviderOperationResult(ProviderOperationStatus.PENDING, self._batch_request_id(task_ids))
         try:
             task_id, immediate_items = self._submit(request)
         except (httpx.TimeoutException, httpx.TransportError) as error:
@@ -642,6 +700,44 @@ class MaizitechImageProvider:
 
     def resume(self, provider_request_id: str, *, requested_count: int = 1) -> ProviderOperationResult:
         """Recover by querying a persisted ID; this method never submits."""
+        task_ids = self._batch_task_ids(provider_request_id)
+        if task_ids is not None:
+            requested_count = max(requested_count, len(task_ids))
+            outcomes = [self._query(task_id, requested_count=1) for task_id in task_ids]
+            if any(outcome.status is ProviderOperationStatus.PENDING for outcome in outcomes):
+                return ProviderOperationResult(ProviderOperationStatus.PENDING, provider_request_id)
+            if any(outcome.status is ProviderOperationStatus.UNKNOWN for outcome in outcomes):
+                return ProviderOperationResult(ProviderOperationStatus.UNKNOWN, provider_request_id)
+            completed = [
+                outcome.result
+                for outcome in outcomes
+                if outcome.status is ProviderOperationStatus.COMPLETED and outcome.result
+            ]
+            asset_urls = [url for result in completed for url in result.asset_urls]
+            if not asset_urls:
+                failure = next((outcome for outcome in outcomes if outcome.status is ProviderOperationStatus.FAILED), None)
+                return ProviderOperationResult(
+                    ProviderOperationStatus.FAILED,
+                    provider_request_id,
+                    error_code=failure.error_code if failure else "provider_failed",
+                    error_message=failure.error_message if failure else "all batched provider requests failed",
+                )
+            first = completed[0]
+            result = replace(
+                first,
+                provider_request_id=provider_request_id,
+                asset_urls=asset_urls,
+                asset_mime_types=[
+                    mime
+                    for item in completed
+                    for mime in (item.asset_mime_types or ["image/png"] * len(item.asset_urls))
+                ],
+                requested_count=requested_count,
+                actual_count=None,
+                completeness=None,
+                shortfall=None,
+            )
+            return ProviderOperationResult(ProviderOperationStatus.COMPLETED, provider_request_id, result=result)
         try:
             return self._query(provider_request_id, requested_count=requested_count)
         except (httpx.TimeoutException, httpx.TransportError) as error:
@@ -654,6 +750,35 @@ class MaizitechImageProvider:
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
         import time
+
+        if request.output_count > 1:
+            # The edit endpoint is synchronous in this adapter. Keep the four
+            # single-image calls concurrent so one slow result does not delay
+            # submission of the others, while still returning every asset.
+            with ThreadPoolExecutor(max_workers=request.output_count) as executor:
+                results = list(
+                    executor.map(
+                        self.generate,
+                        [replace(request, output_count=1) for _ in range(request.output_count)],
+                    )
+                )
+            asset_urls = [url for result in results for url in result.asset_urls]
+            return replace(
+                results[0],
+                provider_request_id=self._batch_request_id(
+                    [result.provider_request_id for result in results if result.provider_request_id]
+                ),
+                asset_urls=asset_urls,
+                asset_mime_types=[
+                    mime
+                    for result in results
+                    for mime in (result.asset_mime_types or ["image/png"] * len(result.asset_urls))
+                ],
+                requested_count=request.output_count,
+                actual_count=None,
+                completeness=None,
+                shortfall=None,
+            )
 
         started = time.monotonic()
         task_id, immediate_items = self._submit(request)

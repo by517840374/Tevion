@@ -35,18 +35,20 @@ def test_submit_poll_and_normalize_completed_task() -> None:
         if request.url.path.endswith("/images/generations"):
             seen_bodies.append(json.loads(request.content))
             seen_auth.append(request.headers.get("authorization", ""))
+            task_id = f"task_{len(seen_bodies)}"
             return httpx.Response(
                 200,
                 json={
                     "created": 1714012800,
-                    "data": [{"task_id": "task_abc", "status": "pending"}],
+                    "data": [{"task_id": task_id, "status": "pending"}],
                 },
             )
-        assert request.url.path.endswith("/tasks/task_abc")
+        task_id = request.url.path.rsplit("/", 1)[-1]
+        assert task_id in {"task_1", "task_2"}
         return httpx.Response(
             200,
             json={
-                "id": "task_abc",
+                "id": task_id,
                 "status": "completed",
                 "model": "gpt-image-2",
                 "result_urls": ["https://cdn.example.test/result-1.png"],
@@ -60,28 +62,31 @@ def test_submit_poll_and_normalize_completed_task() -> None:
         GenerationRequest(prompt="清爽成年男性肖像", output_count=2, aspect_ratio="1:1", quality="low")
     )
 
-    assert result.provider_request_id == "task_abc"
+    assert result.provider_request_id == 'batch:["task_1","task_2"]'
     assert result.provider_name == "maizitech"
     assert result.model_name == "gpt-image-2"
     assert result.metadata_source == "provider_response"
-    assert result.asset_urls == ["https://cdn.example.test/result-1.png"]
+    assert result.asset_urls == [
+        "https://cdn.example.test/result-1.png",
+        "https://cdn.example.test/result-1.png",
+    ]
     assert result.requested_count == 2
-    assert result.actual_count == 1
-    assert result.completeness == "partial"
-    assert result.shortfall == 1
+    assert result.actual_count == 2
+    assert result.completeness == "complete"
+    assert result.shortfall == 0
     assert result.cost == 0.0081
     assert result.metadata == {
         "provider": "maizitech",
         "params": {"size": "1:1", "quality": "low"},
         "size": "1:1",
     }
-    # payload carries model/prompt/n but never the api key
+    # Each request is one image; the deprecated n parameter is omitted.
     assert seen_bodies[0]["model"] == "gpt-image-2"
     assert seen_bodies[0]["prompt"] == "清爽成年男性肖像"
-    assert seen_bodies[0]["n"] == 2
+    assert all("n" not in body for body in seen_bodies)
     assert "api_key" not in seen_bodies[0]
     assert "sk-test" not in json.dumps(seen_bodies)
-    assert seen_auth == [f"Bearer {API_KEY}"]
+    assert seen_auth == [f"Bearer {API_KEY}"] * 2
 
 
 def test_failed_task_raises_without_exposing_key() -> None:

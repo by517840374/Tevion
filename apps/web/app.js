@@ -1276,13 +1276,12 @@ async function handleGenerate({ reuse = false } = {}) {
     if (!request) return;
     const mode = document.querySelector('.mode.active').dataset.mode;
     currentTask = { request, mode, aspect_ratio: $('ratio').value, output_count: Number($('count').value) };
-    if (mode === 'refine' && !reuse) {
-      if (!chosenId) {
+    const parentVersionId = uploadedParentVersionId || (mode === 'refine' ? chosenId : null);
+    if (mode === 'refine' && !parentVersionId) {
         toast('精修前请先选择一张候选图。', 'error');
         return;
-      }
-      currentTask.parent_version_id = uploadedParentVersionId || chosenId;
     }
+    if (parentVersionId) currentTask.parent_version_id = parentVersionId;
   }
   if (!currentTask || !currentTask.task_id && !reuse && !currentTask.request) return;
 

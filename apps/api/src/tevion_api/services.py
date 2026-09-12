@@ -268,7 +268,7 @@ def create_task(
 ) -> CreatedTask:
     project = _resolve_project(db, user, project_id)
     parent_run_id = None
-    if mode == "refine":
+    if mode == "refine" or parent_version_id:
         if not parent_version_id:
             raise ValueError("parent image is required for refine")
         parent = db.scalar(
@@ -959,7 +959,7 @@ def execute_generation(
     )
     try:
         result: GenerationResult | None = None
-        if session.mode == "refine" and hasattr(provider, "edit_image"):
+        if parameters.get("parent_image_id") and hasattr(provider, "edit_image"):
             parent_id = parameters.get("parent_image_id")
             parent = db.get(ImageVersion, parent_id) if isinstance(parent_id, str) else None
             if parent is None:
@@ -978,6 +978,7 @@ def execute_generation(
                 parent_image_id=parent.id,
                 parent_run_id=run.parent_run_id or parent.run_id,
                 owner_id=run.user_id or "",
+                output_count=request.output_count,
             )
             operation = None
         elif run.status == "unknown" and run.provider_request_id and hasattr(provider, "resume"):
@@ -1013,7 +1014,7 @@ def execute_generation(
                 raise ProviderResponseError(operation.error_message or "provider task failed")
         else:
             operation = None
-        if session.mode == "refine" and hasattr(provider, "edit_image"):
+        if parameters.get("parent_image_id") and hasattr(provider, "edit_image"):
             pass
         else:
             result = operation.result if operation is not None else provider.generate(request)
