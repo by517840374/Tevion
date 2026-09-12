@@ -21,6 +21,7 @@ let historySessions = [];
 let selectedProjectId = sessionStorage.getItem(PROJECT_KEY) || '';
 let uploadedParentVersionId = null;
 let uploadedReferenceImages = [];
+let referenceUploadInFlight = false;
 let projectTasks = [];
 let taskPage = 1;
 const TASK_PAGE_SIZE = 6;
@@ -657,7 +658,7 @@ function renderReferencePreview(images = []) {
     const selected = item.parent_version_id && item.parent_version_id === uploadedParentVersionId;
     return '<article class="reference-card' + (selected ? ' selected' : '') + '">' +
       '<button type="button" class="reference-preview-button" data-lightbox="' + escapeHtml(url) + '" aria-label="打开' + escapeHtml(alt) + '大图预览"><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><span>点击查看大图</span></button>' +
-      '<div class="reference-card-footer"><button type="button" class="text-button reference-zoom-button" data-lightbox="' + escapeHtml(url) + '">放大预览</button><button type="button" class="small-button reference-parent-button" data-reference-parent="' + escapeHtml(item.parent_version_id || '') + '"' + (item.parent_version_id ? '' : ' disabled') + '>' + (selected ? '当前精修图' : '设为精修图') + '</button></div>' +
+      '<div class="reference-card-footer"><button type="button" class="text-button reference-zoom-button" data-lightbox="' + escapeHtml(url) + '">放大预览</button><div class="reference-card-actions"><button type="button" class="small-button reference-parent-button" data-reference-parent="' + escapeHtml(item.parent_version_id || '') + '"' + (item.parent_version_id ? '' : ' disabled') + '>' + (selected ? '当前精修图' : '设为精修图') + '</button><button type="button" class="text-button reference-delete-button" data-reference-delete="' + String(index) + '">删除</button></div></div>' +
       '</article>';
   }).join('');
 }
@@ -706,6 +707,8 @@ async function handleReferenceImageUpload() {
   if (!projectId) return setRefineUploadStatus('请先在项目历史中选择项目，再上传本地图片。', true);
   const invalid = files.find(file => !['image/png', 'image/jpeg', 'image/webp'].includes(file.type));
   if (invalid) return setRefineUploadStatus('文件“' + invalid.name + '”格式不受支持，仅支持 PNG、JPEG 或 WebP。', true);
+  if (referenceUploadInFlight) return;
+  referenceUploadInFlight = true;
   button.disabled = true;
   setRefineUploadStatus('正在上传 ' + files.length + ' 张参考图…');
   try {
@@ -723,11 +726,34 @@ async function handleReferenceImageUpload() {
     }
     renderSelectedParent();
     renderRefineContext();
+    input.value = '';
     toast('本地参考图已上传 ' + files.length + ' 张，可点击放大或切换精修图。', 'success');
   } catch (err) {
     setRefineUploadStatus(err.message, true);
     toast('本地图片上传失败：' + err.message, 'error', 9000);
-  } finally { button.disabled = false; }
+  } finally {
+    referenceUploadInFlight = false;
+    button.disabled = true;
+  }
+}
+
+function removeReferenceImage(index) {
+  const item = uploadedReferenceImages[index];
+  if (!item) return;
+  if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+  const removedParentId = item.parent_version_id;
+  uploadedReferenceImages.splice(index, 1);
+  if (removedParentId && removedParentId === uploadedParentVersionId) {
+    uploadedParentVersionId = null;
+    if (chosenId === removedParentId) chosenId = null;
+    if (currentTask) delete currentTask.parent_version_id;
+    renderSelectedParent();
+    renderRefineContext();
+  }
+  renderReferencePreview(uploadedReferenceImages);
+  setRefineUploadStatus(uploadedReferenceImages.length
+    ? '已保留 ' + uploadedReferenceImages.length + ' 张参考图。'
+    : '已移除全部参考图。');
 }
 
 function syncRefineControls() {
@@ -1372,13 +1398,24 @@ $('refineImageFile')?.addEventListener('change', event => {
   const files = Array.from(event.target.files || []);
   const button = $('refineUploadButton');
   if (button) button.disabled = !files.length;
-  setRefineUploadStatus(files.length ? '已选择 ' + files.length + ' 张图片，点击上传并绑定。' : '');
+  if (!files.length) return setRefineUploadStatus('');
+  if (getProjectId()) {
+    setRefineUploadStatus('已选择 ' + files.length + ' 张图片，正在自动上传并绑定…');
+    handleReferenceImageUpload();
+  } else {
+    setRefineUploadStatus('请先选择项目；随后点击“重新上传所选图片”完成上传。', true);
+  }
 });
 $('referencePreview')?.addEventListener('click', event => {
   const preview = event.target.closest('[data-lightbox]');
   if (preview) {
     const image = preview.querySelector('img') || preview.closest('.reference-card')?.querySelector('img');
     openLightbox(preview.dataset.lightbox, image?.alt || '参考图');
+    return;
+  }
+  const remove = event.target.closest('[data-reference-delete]');
+  if (remove) {
+    removeReferenceImage(Number(remove.dataset.referenceDelete));
     return;
   }
   const parent = event.target.closest('[data-reference-parent]');

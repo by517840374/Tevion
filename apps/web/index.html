@@ -103,9 +103,9 @@
       <div class="refine-upload" id="refineUpload">
         <div class="field-label upload-heading"><span>上传参考图</span><span class="muted">可多选</span></div>
         <input id="refineImageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple aria-describedby="refineUploadNote refineUploadStatus">
-        <label class="secondary-button file-picker-button" for="refineImageFile">选择图片</label>
-        <button class="secondary-button upload-reference-button" id="refineUploadButton" type="button" disabled>上传并绑定参考图</button>
-        <p class="field-hint refine-upload-note" id="refineUploadNote">可一次选择多张 PNG、JPEG 或 WebP；上传后点击图片可放大，也可选择其中一张作为 Refine parent。</p>
+        <label class="secondary-button file-picker-button" for="refineImageFile">选择图片（自动上传）</label>
+        <button class="secondary-button upload-reference-button" id="refineUploadButton" type="button" disabled>重新上传所选图片</button>
+        <p class="field-hint refine-upload-note" id="refineUploadNote">选择后会自动上传并绑定；上传后点击图片可放大，也可选择其中一张作为 Refine parent。</p>
         <p class="field-hint" id="refineUploadStatus" role="status" aria-live="polite"></p>
         <div id="referencePreview" class="reference-preview" hidden></div>
       </div>
