@@ -1129,9 +1129,12 @@ def execute_generation(
         images.append(image)
 
     logger.info(
-        "generation_assets_persisted task_id=%s run_id=%s image_count=%d",
+        "generation_assets_persisted task_id=%s run_id=%s aspect_ratio=%s size=%sx%s image_count=%d",
         task.session.id,
         task.run.id,
+        request.aspect_ratio,
+        width,
+        height,
         len(result.asset_urls),
     )
 

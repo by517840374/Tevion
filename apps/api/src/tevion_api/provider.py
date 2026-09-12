@@ -1,6 +1,7 @@
 import base64
 import binascii
 import json
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -12,6 +13,29 @@ import httpx
 
 DEFAULT_MAIZI_BASE_URL = "https://www.maizitech.ai/v1"
 DEFAULT_PIXHUB_BASE_URL = "https://pixhub.top/v1"
+logger = logging.getLogger(__name__)
+
+
+_ASPECT_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "4:5": "1024x1280",
+    "9:16": "1024x1792",
+    "3:4": "768x1024",
+    "2:3": "683x1024",
+    "3:2": "1536x1024",
+    "16:9": "1536x864",
+    "21:9": "1536x659",
+    "5:4": "1280x1024",
+    "4:3": "1024x768",
+    "2:1": "1536x768",
+    "1:2": "512x1024",
+    "1:3": "341x1024",
+}
+
+
+def provider_size_for_aspect_ratio(aspect_ratio: str) -> str:
+    """Translate the product ratio contract into the provider's pixel-size contract."""
+    return _ASPECT_RATIO_SIZES.get(aspect_ratio, "1024x1024")
 
 
 class ProviderConfigError(ValueError):
@@ -111,7 +135,7 @@ class ProviderOperationResult:
 class GPTImageProvider:
     """Provider boundary for GPT Image 2-compatible image generation APIs."""
 
-    model_name = "gpt-image-2"
+    model_name = "gpt-image-2.5"
 
     def __init__(self, *, endpoint: str, api_key: str, model_name: str | None = None) -> None:
         if not endpoint.strip():
@@ -397,7 +421,7 @@ class MaizitechImageProvider:
         *,
         api_key: str,
         base_url: str = DEFAULT_MAIZI_BASE_URL,
-        model_name: str = "gpt-image-2",
+        model_name: str = "gpt-image-2.5",
         http_client: httpx.Client | None = None,
         poll_interval_seconds: float = 2.0,
         timeout_seconds: float = 180.0,
@@ -425,11 +449,19 @@ class MaizitechImageProvider:
         payload: dict[str, Any] = {
             "model": self.model_name,
             "prompt": request.prompt,
-            "size": request.aspect_ratio,
+            "size": provider_size_for_aspect_ratio(request.aspect_ratio),
             "quality": request.quality,
         }
         if request.image:
             payload["image"] = request.image
+        logger.info(
+            "provider_submit provider=%s model=%s aspect_ratio=%s size=%s output_count=%d",
+            self.provider_name,
+            self.model_name,
+            request.aspect_ratio,
+            payload["size"],
+            request.output_count,
+        )
         response = self._client.post(f"{self.base_url}/images/generations", headers=self._headers(), json=payload)
         response.raise_for_status()
         body = response.json()
@@ -650,6 +682,14 @@ class MaizitechImageProvider:
                 cost=float(body["cost"]) if body.get("cost") is not None else None,
                 metadata=self._safe_metadata(body),
                 requested_count=requested_count,
+            )
+            logger.info(
+                "provider_completed provider=%s model=%s provider_request_id=%s size=%s actual_count=%d",
+                self.provider_name,
+                result.model_name,
+                task_id,
+                result.metadata.get("size") if result.metadata else None,
+                result.actual_count,
             )
             return ProviderOperationResult(ProviderOperationStatus.COMPLETED, task_id, result=result)
         if status in {"failed", "error", "cancelled"}:

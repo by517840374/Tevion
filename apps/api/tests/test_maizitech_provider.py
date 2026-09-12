@@ -50,7 +50,7 @@ def test_submit_poll_and_normalize_completed_task() -> None:
             json={
                 "id": task_id,
                 "status": "completed",
-                "model": "gpt-image-2",
+                "model": "gpt-image-2.5",
                 "result_urls": ["https://cdn.example.test/result-1.png"],
                 "cost": 0.0081,
                 "params": {"size": "1:1", "quality": "low"},
@@ -64,7 +64,7 @@ def test_submit_poll_and_normalize_completed_task() -> None:
 
     assert result.provider_request_id == 'batch:["task_1","task_2"]'
     assert result.provider_name == "maizitech"
-    assert result.model_name == "gpt-image-2"
+    assert result.model_name == "gpt-image-2.5"
     assert result.metadata_source == "provider_response"
     assert result.asset_urls == [
         "https://cdn.example.test/result-1.png",
@@ -81,12 +81,36 @@ def test_submit_poll_and_normalize_completed_task() -> None:
         "size": "1:1",
     }
     # Each request is one image; the deprecated n parameter is omitted.
-    assert seen_bodies[0]["model"] == "gpt-image-2"
+    assert seen_bodies[0]["model"] == "gpt-image-2.5"
     assert seen_bodies[0]["prompt"] == "清爽成年男性肖像"
     assert all("n" not in body for body in seen_bodies)
     assert "api_key" not in seen_bodies[0]
     assert "sk-test" not in json.dumps(seen_bodies)
     assert seen_auth == [f"Bearer {API_KEY}"] * 2
+
+
+def test_submit_maps_aspect_ratio_to_provider_pixel_size() -> None:
+    seen_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/images/generations"):
+            seen_bodies.append(json.loads(request.content))
+            return httpx.Response(200, json={"data": [{"task_id": "task_ratio", "status": "pending"}]})
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "model": "gpt-image-2.5",
+                "result_urls": ["https://cdn.example.test/ratio.png"],
+                "params": {"size": "1536x1024", "quality": "low"},
+            },
+        )
+
+    provider = _provider(handler)
+    result = provider.generate(GenerationRequest(prompt="x", aspect_ratio="3:2"))
+
+    assert seen_bodies[0]["size"] == "1536x1024"
+    assert result.metadata["size"] == "1536x1024"
 
 
 def test_failed_task_raises_without_exposing_key() -> None:

@@ -112,7 +112,7 @@ def get_image_provider() -> ImageGenerationProvider:
             return CustomAsyncImageProvider(
                 api_key=api_key,
                 base_url=base_url,
-                model_name=configured.get("model") or os.environ.get("CUSTOM_IMAGE_MODEL", "gpt-image-2"),
+                model_name=configured.get("model") or os.environ.get("CUSTOM_IMAGE_MODEL", "gpt-image-2.5"),
                 timeout_seconds=timeout_seconds,
                 poll_interval_seconds=poll_interval_seconds,
             )
@@ -144,7 +144,7 @@ def get_image_provider() -> ImageGenerationProvider:
     return MaizitechImageProvider(
         api_key=api_key,
         base_url=os.environ.get("MAIZI_BASE_URL", DEFAULT_MAIZI_BASE_URL),
-        model_name=os.environ.get("MAIZI_MODEL", "gpt-image-2"),
+        model_name=os.environ.get("MAIZI_MODEL", "gpt-image-2.5"),
     )
 
 

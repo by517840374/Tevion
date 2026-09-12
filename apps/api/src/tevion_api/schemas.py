@@ -15,7 +15,7 @@ class ProductMetadata(BaseModel):
 class ImageProviderConfigRequest(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     api_key: str = Field(min_length=1, max_length=1000)
-    model: str = Field(default="gpt-image-2", min_length=1, max_length=120)
+    model: str = Field(default="gpt-image-2.5", min_length=1, max_length=120)
 
 
 class ImageProviderConfigResponse(BaseModel):

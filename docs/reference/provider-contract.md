@@ -65,9 +65,9 @@ POST /images/generations
 
 当前提交 body：
 
-- `model`: `model_name`，默认 `gpt-image-2`
+- `model`: `model_name`，默认 `gpt-image-2.5`
 - `prompt`: `GenerationRequest.prompt`
-- `size`: `GenerationRequest.aspect_ratio`
+- `size`: `GenerationRequest.aspect_ratio` 映射后的像素尺寸（例如 `3:2` → `1536x1024`）
 - `quality`: `GenerationRequest.quality`
 - `n`: 仅当 `output_count > 1` 时发送
 

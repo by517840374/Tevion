@@ -34,7 +34,7 @@ def test_provider_normalizes_a_valid_response_without_exposing_key() -> None:
     result = provider.normalize_response(
         {
             "id": "provider-request-1",
-            "model": "gpt-image-2",
+            "model": "gpt-image-2.5",
             "data": [{"url": "https://assets.example.test/image-1.png"}],
             "usage": {"cost": 0.12},
         },
@@ -44,7 +44,7 @@ def test_provider_normalizes_a_valid_response_without_exposing_key() -> None:
     assert isinstance(result, GenerationResult)
     assert result.provider_name == "gpt-image"
     assert result.provider_request_id == "provider-request-1"
-    assert result.model_name == "gpt-image-2"
+    assert result.model_name == "gpt-image-2.5"
     assert result.asset_urls == ["https://assets.example.test/image-1.png"]
     assert result.latency_ms == 321
     assert result.cost == 0.12
@@ -89,7 +89,7 @@ def test_provider_request_payload_does_not_contain_credentials() -> None:
     )
 
     assert payload == {
-        "model": "gpt-image-2",
+        "model": "gpt-image-2.5",
         "prompt": "adult male portrait",
         "n": 2,
         "aspect_ratio": "1:1",
