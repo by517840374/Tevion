@@ -848,10 +848,9 @@ function renderLoading(stepIdx, mainText, subText) {
       '</div>'
     : '';
   r.innerHTML = previousResults +
-    '<div class="loading-block">' +
+    '<div class="loading-block compact-loading" aria-label="生成任务处理中">' +
       '<div class="spinner"></div>' +
-      '<h3>' + escapeHtml(mainText) + '</h3>' +
-      '<p>' + escapeHtml(subText || '') + '</p>' +
+      '<div class="loading-copy"><strong>生成任务处理中</strong><span>后台轮询中 · 最长 5 分钟</span></div>' +
       '<div class="gen-steps">' +
         steps.map((s, i) => '<span class="step ' + (i < stepIdx ? 'done' : i === stepIdx ? 'active' : '') + '">' + (i < stepIdx ? '✓ ' : '') + s + '</span>').join('') +
       '</div>' +
@@ -979,10 +978,6 @@ function renderResults(images, outputMeta = {}, { append = false, useState = fal
       toast('候选图加载失败，可尝试「重新生成」。', 'error');
     }, { once: true });
   });
-  r.querySelectorAll('[data-lightbox]').forEach(button => {
-    button.addEventListener('click', () => openLightbox(button.dataset.lightbox, button.querySelector('img')?.alt));
-  });
-
   $('regenerate').addEventListener('click', startNewGeneration);
   setBusy(false);
   setGenerateLabel('再次生成视觉方案');
@@ -1014,9 +1009,6 @@ function bindCandidateImages(root = $('results')) {
       wrap.querySelector('.img-loader').textContent = '图片加载失败';
       toast('候选图加载失败，可尝试「重新生成」。', 'error');
     }, { once: true });
-  });
-  root.querySelectorAll('[data-lightbox]').forEach(button => {
-    button.addEventListener('click', () => openLightbox(button.dataset.lightbox, button.querySelector('img')?.alt));
   });
 }
 
@@ -1512,7 +1504,8 @@ $('referencePreview')?.addEventListener('click', event => {
   const preview = event.target.closest('[data-lightbox]');
   if (preview) {
     const image = preview.querySelector('img') || preview.closest('.reference-card')?.querySelector('img');
-    openLightbox(preview.dataset.lightbox, image?.alt || '参考图');
+    event.preventDefault();
+    openLightbox(preview.getAttribute('data-lightbox'), image?.alt || '参考图');
     return;
   }
   const remove = event.target.closest('[data-reference-delete]');
@@ -1546,7 +1539,8 @@ $('taskPagination')?.addEventListener('click', event => {
 $('taskList')?.addEventListener('click', event => {
   const preview = event.target.closest('[data-lightbox]');
   if (preview) {
-    openLightbox(preview.dataset.lightbox, preview.querySelector('img')?.alt || '任务结果');
+    event.preventDefault();
+    openLightbox(preview.getAttribute('data-lightbox'), preview.querySelector('img')?.alt || '任务结果');
     return;
   }
   const button = event.target.closest('button');
@@ -1569,7 +1563,8 @@ $('projectManagementList')?.addEventListener('click', event => {
 $('results').addEventListener('click', e => {
   const preview = e.target.closest('[data-lightbox]');
   if (preview) {
-    openLightbox(preview.dataset.lightbox, preview.querySelector('img')?.alt || '候选图片');
+    e.preventDefault();
+    openLightbox(preview.getAttribute('data-lightbox'), preview.querySelector('img')?.alt || '候选图片');
     return;
   }
   const sel = e.target.closest('[data-select]');
