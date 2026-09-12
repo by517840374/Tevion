@@ -905,6 +905,7 @@ function openLightbox(url, alt) {
   download.href = url;
   download.download = (alt || 'tevion-image').replace(/[^\w\u4e00-\u9fff-]+/g, '-').slice(0, 80) + '.png';
   overlay.hidden = false;
+  overlay.style.display = 'grid';
   document.body.classList.add('lightbox-open');
   overlay.querySelector('.lightbox-close').focus();
 }
@@ -919,6 +920,16 @@ function closeLightbox() {
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') closeLightbox();
 });
+
+// 动态结果、任务历史和参考图统一走捕获阶段，避免容器重渲染后丢失预览事件。
+document.addEventListener('click', event => {
+  const target = event.target;
+  const preview = target instanceof Element ? target.closest('[data-lightbox]') : null;
+  if (!preview) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openLightbox(preview.getAttribute('data-lightbox'), preview.querySelector('img')?.alt || '图片大图');
+}, true);
 
 function candidateRoundMarkup(images, roundIndex) {
   const cards = images.map((img, i) => {
