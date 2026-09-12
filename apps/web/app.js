@@ -846,13 +846,16 @@ function openLightbox(url, alt) {
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', '候选图片大图预览');
-    overlay.innerHTML = '<button type="button" class="lightbox-close" aria-label="关闭大图预览">×</button><img class="lightbox-image" alt="">';
+    overlay.innerHTML = '<button type="button" class="lightbox-close" aria-label="关闭大图预览">×</button><img class="lightbox-image" alt=""><a class="lightbox-download" target="_blank" rel="noopener" download>下载原图 ↗</a>';
     document.body.appendChild(overlay);
     overlay.addEventListener('click', event => { if (event.target === overlay || event.target.closest('.lightbox-close')) closeLightbox(); });
   }
   const image = overlay.querySelector('.lightbox-image');
   image.src = url;
   image.alt = alt || '候选图片大图';
+  const download = overlay.querySelector('.lightbox-download');
+  download.href = url;
+  download.download = (alt || 'tevion-image').replace(/[^\w\u4e00-\u9fff-]+/g, '-').slice(0, 80) + '.png';
   overlay.hidden = false;
   document.body.classList.add('lightbox-open');
   overlay.querySelector('.lightbox-close').focus();
@@ -900,6 +903,7 @@ function renderResults(images, outputMeta = {}) {
             '<span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' +
             (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
           '</div>' +
+          '<a class="text-button candidate-download" href="' + escapeHtml(img.url) + '" target="_blank" rel="noopener" download="tevion-candidate-' + String(i + 1) + '.png" aria-label="下载候选 ' + (i + 1) + '">下载</a>' +
           '<button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
           '<button type="button" class="reject-candidate" aria-label="拒绝候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button>' +
         '</div>' +
@@ -947,7 +951,7 @@ function candidateCardMarkup(img, i) {
       '<button type="button" class="image-preview" data-lightbox="' + escapeHtml(img.url) + '" aria-label="打开候选 ' + (i + 1) + ' 大图预览"><img loading="lazy" alt="候选 ' + (i + 1) + '" src="' + escapeHtml(img.url) + '"></button>' +
     '</div><div class="candidate-meta"><div class="card-info"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span>' +
     (dims ? '<span class="card-dims">' + dims + '</span>' : '') +
-    '</div><button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
+    '</div><a class="text-button candidate-download" href="' + escapeHtml(img.url) + '" target="_blank" rel="noopener" download="tevion-candidate-' + String(i + 1) + '.png" aria-label="下载候选 ' + (i + 1) + '">下载</a><button type="button" class="select-candidate" aria-label="选择候选 ' + (i + 1) + '" data-select="' + escapeHtml(img.id) + '">选择</button>' +
     '<button type="button" class="reject-candidate" aria-label="拒绝候选 ' + (i + 1) + '" data-reject="' + escapeHtml(img.id) + '">拒绝</button></div></article>';
 }
 
