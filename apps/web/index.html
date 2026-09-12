@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tevion — Visual Agent Workbench</title>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="interactive.css">
+  <link rel="stylesheet" href="styles.css?v=20260912">
+  <link rel="stylesheet" href="interactive.css?v=20260912">
 </head>
 <body>
   <header class="topbar">
@@ -101,9 +101,10 @@
         <div class="project-picker-actions"><button class="secondary-button" id="manageProjectsBtn" type="button">管理项目</button><button class="text-button" id="workbenchNewProjectBtn" type="button">新建项目</button></div>
       </div>
       <div class="refine-upload" id="refineUpload">
-        <label class="field-label" for="refineImageFile">上传参考图（可多选）</label>
+        <div class="field-label upload-heading"><span>上传参考图</span><span class="muted">可多选</span></div>
         <input id="refineImageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple aria-describedby="refineUploadNote refineUploadStatus">
-        <button class="secondary-button" id="refineUploadButton" type="button" disabled>上传并绑定参考图</button>
+        <label class="secondary-button file-picker-button" for="refineImageFile">选择图片</label>
+        <button class="secondary-button upload-reference-button" id="refineUploadButton" type="button" disabled>上传并绑定参考图</button>
         <p class="field-hint refine-upload-note" id="refineUploadNote">可一次选择多张 PNG、JPEG 或 WebP；上传后点击图片可放大，也可选择其中一张作为 Refine parent。</p>
         <p class="field-hint" id="refineUploadStatus" role="status" aria-live="polite"></p>
         <div id="referencePreview" class="reference-preview" hidden></div>
@@ -179,6 +180,6 @@
   <script>
     window.TEVION_OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
   </script>
-  <script src="app.js"></script>
+  <script src="app.js?v=20260912"></script>
 </body>
 </html>

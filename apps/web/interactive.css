@@ -107,6 +107,9 @@ button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px sol
 
 @media(max-width:1050px){.workspace{grid-template-columns:280px 1fr}.right-column{display:none}}
 @media(max-width:700px){.topbar{padding:0 16px}.topbar-meta{display:none}.auth-chip span{display:none}.workspace{display:block;min-height:0}.sidebar,.center-column,.right-column{padding:24px 16px}.sidebar h1{font-size:26px;margin-bottom:26px}.center-column{padding-top:30px}.right-column{display:block;border:1px solid var(--line);border-top:0}.topbar{height:62px}.topbar-actions{gap:6px}.topbar-actions #profileBtn{display:none}.candidate-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.candidate-meta{padding:9px;align-items:flex-start;flex-wrap:wrap}.candidate-meta .card-info{width:100%}.select-candidate{flex:1}.reject-candidate{flex:0 0 auto}.gen-steps{overflow-x:auto;white-space:nowrap;padding-bottom:4px}.mode-switch{overflow-x:auto}.mode{flex:0 0 auto}}
+
+/* File inputs are intentionally styled as a clear two-step upload flow. */
+.upload-heading{display:flex;justify-content:space-between;align-items:center}.refine-upload input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.file-picker-button,.upload-reference-button{display:flex;align-items:center;justify-content:center;width:100%;margin-top:9px;text-align:center}.file-picker-button{background:#253125}.upload-reference-button:not(:disabled){background:var(--accent);color:#162013;border-color:var(--accent);box-shadow:0 7px 18px rgba(201,243,108,.12)}
 @media(max-width:420px){.candidate-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.result-actions{align-items:flex-start}.result-actions .live-pill{order:-1}}
 
 /* product entry and auth */
