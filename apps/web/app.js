@@ -910,7 +910,7 @@ function renderResults(images, outputMeta = {}) {
   r.innerHTML =
     '<div class="result-top">' +
       '<div><div class="eyebrow">EXPLORATION ROUND</div><h3>这组候选由真实生成管线产出</h3></div>' +
-      '<div class="result-actions"><span class="muted" id="selectionNote"></span><button class="regen-button" id="regenerate">重新生成 ↻</button><span class="live-pill"><span class="status-dot"></span> 已完成</span></div>' +
+      '<div class="result-actions"><span class="muted" id="selectionNote"></span><button class="regen-button" id="regenerate">新建一轮 ↻</button><span class="live-pill"><span class="status-dot"></span> 已完成</span></div>' +
     '</div>' +
     '<div class="candidate-count" role="status">' + quantityNote + '。' + (shortfall ? '本次以实际返回为准，拼图内容仍算一张候选图。' : '') + '</div>' +
     '<div class="candidate-grid">' + cards + '</div>' +
@@ -931,10 +931,7 @@ function renderResults(images, outputMeta = {}) {
     button.addEventListener('click', () => openLightbox(button.dataset.lightbox, button.querySelector('img')?.alt));
   });
 
-  $('regenerate').addEventListener('click', () => {
-    currentTask = null;
-    handleGenerate();
-  });
+  $('regenerate').addEventListener('click', startNewGeneration);
   setBusy(false);
   setGenerateLabel('再次生成视觉方案');
   setAgentPill('已生成 ' + images.length + ' 张候选', 'done');
@@ -1258,6 +1255,12 @@ function readRequestText() {
   return tags.length ? raw + '（视觉方向：' + tags.join('、') + '）' : raw;
 }
 
+function startNewGeneration() {
+  if (busy) return;
+  currentTask = null;
+  handleGenerate();
+}
+
 async function handleGenerate({ reuse = false } = {}) {
   if (busy) return;
   if (!getToken()) {
@@ -1379,7 +1382,7 @@ document.querySelectorAll('.mode').forEach(mode =>
     mode.classList.add('active');
     syncRefineControls();
   }));
-$('generate').addEventListener('click', () => handleGenerate());
+$('generate').addEventListener('click', startNewGeneration);
 $('refreshPageBtn')?.addEventListener('click', reloadPage);
 $('loginBtn').addEventListener('click', () => routeTo('login'));
 $('projectsBtn')?.addEventListener('click', () => routeTo('projects'));
