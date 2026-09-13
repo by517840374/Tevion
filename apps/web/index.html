@@ -5,22 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tevion - Visual Agent Workbench</title>
   <link rel="stylesheet" href="styles.css?v=20260912">
-  <link rel="stylesheet" href="interactive.css?v=20260912-taste2">
+  <link rel="stylesheet" href="interactive.css?v=20260913-account-menu-profile">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">T</span><span>TEVION</span></div>
-    <div class="topbar-meta"><span class="status-dot"></span> 视觉探索工作台 <span class="separator">/</span> 实时后端联调模式 <span class="credit-balance" id="creditBalance" hidden>余额 -- 点</span></div>
+    <div class="topbar-meta"><span class="status-dot"></span> 视觉探索工作台 <span class="separator">/</span> 实时后端联调模式</div>
     <div class="topbar-actions">
       <div class="auth-area" id="authArea">
         <button class="ghost-button" id="loginBtn">演示登录</button>
-        <div class="auth-chip" id="authChip" hidden><span class="status-dot"></span><span id="authName">已登录 · demo</span><button class="text-button" id="logoutBtn">退出</button></div>
+        <details class="auth-chip account-menu" id="authChip" hidden>
+          <summary class="account-summary" aria-label="打开账户菜单">
+            <span class="account-avatar" id="authAvatar" aria-hidden="true">D</span>
+            <span class="account-copy"><span id="authName">demo</span><span id="authPoints">余额 -- 点</span></span>
+          </summary>
+          <div class="account-menu-actions">
+            <button class="account-menu-button" id="aestheticProfileBtn" type="button" aria-label="查看审美画像">查看审美画像</button>
+            <button class="account-menu-button" id="profileBtn" type="button" aria-label="打开个人信息">个人信息</button>
+            <button class="account-menu-button danger" id="logoutBtn" type="button" aria-label="退出登录">退出登录</button>
+          </div>
+        </details>
       </div>
       <button class="ghost-button" id="refreshPageBtn" type="button">刷新页面</button>
       <button class="ghost-button" id="projectsBtn">项目管理</button>
       <button class="ghost-button" id="adminBtn" hidden>后台管理</button>
       <button class="ghost-button" id="providerSettingsBtn">图片接口设置</button>
-      <button class="ghost-button" id="profileBtn">查看我的审美画像</button>
     </div>
   </header>
 
@@ -100,23 +109,76 @@
     </section>
   </main>
 
+  <dialog id="profileModal" class="credit-modal" aria-labelledby="profileModalTitle">
+    <form id="profileForm" class="standalone-project-form">
+      <div class="admin-form-heading"><div><div class="eyebrow">ACCOUNT PROFILE</div><h2 id="profileModalTitle">个人信息</h2></div><button type="button" class="modal-close" id="closeProfileModal" aria-label="关闭个人信息窗口">×</button></div>
+      <label class="field-label" for="profileEmail">登录邮箱</label>
+      <input id="profileEmail" type="email" readonly>
+      <label class="field-label">账户余额</label>
+      <div id="profileCredits" class="profile-credit-card" aria-live="polite">读取中…</div>
+      <label class="field-label" for="profileDisplayName">显示名称</label>
+      <input id="profileDisplayName" type="text" maxlength="120" placeholder="输入你希望显示的名称">
+      <p id="profileMessage" class="field-hint" role="status" aria-live="polite"></p>
+      <div class="modal-actions"><button type="button" class="secondary-button" id="cancelProfileModal">取消</button><button class="primary-button" type="submit">保存信息</button></div>
+    </form>
+  </dialog>
+
   <main id="adminView" class="management-view" hidden>
     <section class="management-shell narrow">
       <button class="back-link" id="backFromAdminBtn" type="button">← 返回项目管理</button>
       <div class="eyebrow">ADMIN CONSOLE</div><h1>后台管理</h1>
-      <p class="muted">点数账户的人工调整会写入不可变账本，并保留操作原因。</p>
+      <p class="muted">查看账户余额，选择用户分配点数。所有调整都会写入不可变账本。</p>
       <div id="adminStatus" class="management-status" role="status" aria-live="polite">正在检查管理员权限…</div>
-      <form id="adminCreditForm" class="standalone-project-form" hidden>
-        <label class="field-label" for="adminUserId">用户 ID</label>
-        <input id="adminUserId" type="text" maxlength="64" required placeholder="user_xxx">
-        <label class="field-label" for="adminPoints">调整点数</label>
-        <input id="adminPoints" type="number" min="-1000000" max="1000000" required placeholder="例如 100">
+      <section class="admin-user-section" aria-labelledby="adminUsersTitle">
+        <div class="admin-section-heading"><div><div class="eyebrow">ACCESS CONTROL</div><h2 id="adminUsersTitle">管理员权限</h2></div><button type="button" class="secondary-button" id="newAdminUserBtn">新建用户</button></div>
+        <p class="muted">当前版本只有 super admin；这里可以授予或收回管理员权限。</p>
+        <div class="admin-table-wrap"><table class="admin-user-table"><thead><tr><th>用户</th><th>账户</th><th>权限</th><th>操作</th></tr></thead><tbody id="adminUserList"><tr><td colspan="4" class="muted">尚未加载用户。</td></tr></tbody></table></div>
+      </section>
+    </section>
+    <dialog id="creditModal" class="credit-modal" aria-labelledby="creditModalTitle">
+      <form id="adminCreditForm" class="standalone-project-form admin-credit-form">
+        <div class="admin-form-heading"><div><div class="eyebrow">ALLOCATE POINTS</div><h2 id="creditModalTitle">分配点数</h2></div><button type="button" class="modal-close" id="closeCreditModal" aria-label="关闭分配点数窗口">×</button></div>
+        <p id="adminSelectedUser" class="modal-user">未选择用户</p>
+        <input id="adminUserId" type="hidden" required>
+        <label class="field-label" for="adminPoints">点数变更</label>
+        <input id="adminPoints" type="number" min="-1000000" max="1000000" required placeholder="增加填正数，扣除填负数">
+        <p class="field-hint">输入正数充值，输入负数扣除。</p>
         <label class="field-label" for="adminReason">调整原因</label>
         <input id="adminReason" type="text" maxlength="255" required placeholder="例如：测试账户充值">
         <p id="adminCreditMessage" class="field-hint" role="status" aria-live="polite"></p>
-        <button class="primary-button" type="submit">提交账本调整</button>
+        <div class="modal-actions"><button type="button" class="secondary-button" id="cancelCreditModal">取消</button><button class="primary-button" type="submit">确认调整</button></div>
       </form>
-    </section>
+    </dialog>
+    <dialog id="ledgerModal" class="credit-modal ledger-modal" aria-labelledby="ledgerModalTitle">
+      <div class="admin-form-heading"><div><div class="eyebrow">CREDIT LEDGER</div><h2 id="ledgerModalTitle">点数流水</h2></div><button type="button" class="modal-close" id="closeLedgerModal" aria-label="关闭点数流水">×</button></div>
+      <p id="ledgerModalUser" class="modal-user"></p>
+      <div class="admin-table-wrap"><table class="admin-user-table"><thead><tr><th>时间</th><th>变更</th><th>类型</th><th>原因</th></tr></thead><tbody id="ledgerList"><tr><td colspan="4" class="muted">尚未加载。</td></tr></tbody></table></div>
+    </dialog>
+    <dialog id="newUserModal" class="credit-modal" aria-labelledby="newUserModalTitle">
+      <form id="newUserForm" class="standalone-project-form">
+        <div class="admin-form-heading"><div><div class="eyebrow">NEW ACCOUNT</div><h2 id="newUserModalTitle">新建用户</h2></div><button type="button" class="modal-close" id="closeNewUserModal" aria-label="关闭新建用户窗口">×</button></div>
+        <label class="field-label" for="newUserEmail">邮箱</label>
+        <input id="newUserEmail" type="email" autocomplete="email" required placeholder="name@example.com">
+        <label class="field-label" for="newUserPassword">初始密码（可选）</label>
+        <input id="newUserPassword" type="password" autocomplete="new-password" minlength="8" placeholder="留空则自动生成初始密码（只显示一次）">
+        <label class="admin-check"><input id="newUserAdmin" type="checkbox"> 同时授予 super admin</label>
+        <p id="newUserMessage" class="field-hint" role="status" aria-live="polite"></p>
+        <div class="modal-actions"><button type="button" class="secondary-button" id="cancelNewUserModal">取消</button><button class="primary-button" type="submit">创建用户</button></div>
+      </form>
+    </dialog>
+    <dialog id="passwordModal" class="credit-modal" aria-labelledby="passwordModalTitle">
+      <form id="passwordForm" class="standalone-project-form">
+        <div class="admin-form-heading"><div><div class="eyebrow">PASSWORD RESET</div><h2 id="passwordModalTitle">修改密码</h2></div><button type="button" class="modal-close" id="closePasswordModal" aria-label="关闭修改密码窗口">×</button></div>
+        <p id="passwordUser" class="modal-user"></p>
+        <input id="passwordUserId" type="hidden" required>
+        <label class="field-label" for="adminNewPassword">新密码（可选）</label>
+        <input id="adminNewPassword" type="password" autocomplete="new-password" minlength="8" placeholder="留空则自动生成并只显示一次">
+        <label class="field-label" for="adminConfirmPassword">确认新密码</label>
+        <input id="adminConfirmPassword" type="password" autocomplete="new-password" minlength="8" placeholder="再次输入新密码">
+        <p id="passwordMessage" class="field-hint" role="status" aria-live="polite"></p>
+        <div class="modal-actions"><button type="button" class="secondary-button" id="cancelPasswordModal">取消</button><button class="primary-button" type="submit">确认修改</button></div>
+      </form>
+    </dialog>
   </main>
 
   <main id="workbenchView" class="workspace" hidden>
@@ -199,10 +261,10 @@
       <section class="context-primary" id="contextPrimary">
         <div class="eyebrow">VISUAL MEMORY</div>
         <h3>Agent 对你的理解</h3>
-        <p class="muted intro">基于本项目最近 12 次反馈</p>
+        <p class="muted intro">项目级记忆 · 基于最近 12 次反馈 · 保存在 Tevion 数据库</p>
       <div id="memoryStatus" class="memory-status" role="status" aria-live="polite">生成任务后加载你的可解释视觉记忆。</div>
       <div id="memoryList" class="memory-list" aria-live="polite"><p class="muted">暂无可见记忆。</p></div>
-      <div class="memory-footer"><span class="memory-pulse"></span><p>每条记忆都保留来源与证据，可编辑、停用或删除。<br><button class="text-button" id="memoryBtn">刷新记忆 →</button></p></div>
+      <div class="memory-footer"><span class="memory-pulse"></span><p>每条记忆都保留来源与证据，可编辑、停用或删除。<br><button class="text-button" id="memoryBtn">查看 / 刷新项目记忆 →</button></p></div>
       </section>
       <details class="context-section" id="historyPanel">
         <summary><span><strong>项目历史</strong></span><span class="context-toggle">展开</span></summary>

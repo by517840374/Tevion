@@ -11,7 +11,7 @@ Tevion 的长期目标不是简单封装图像 API，而是成为能够从用户
         → 偏好记忆 → 下一次做出更好的决策
 ```
 
-首个版本将 GPT-image2 作为可替换的图像生成 Provider。产品的核心边界包括：Web/App 体验、task/session/version 数据模型、反馈闭环，以及受策略控制的学习层。
+首个版本将 OpenAI-compatible image API 作为可替换的图像生成 Provider，当前支持 Pixhub 的 `gpt-image-2.5` 配置。产品的核心边界包括：Web/App 体验、task/session/version 数据模型、反馈闭环、Visual Memory，以及受策略控制的学习层。
 
 ## 仓库现状
 
@@ -39,7 +39,7 @@ pip install -e '.[dev]'
 uvicorn tevion_api.main:app --reload
 ```
 
-当前 API 已提供健康检查、产品元数据、认证、任务创建、任务生成、任务查询、运行时快照、反馈写入和偏好查询接口；前端工作台已接入候选反馈与 Visual Memory 展示。Issue #24、#28、#29、#30 的实现已合并到 `origin/main`；Issue #70 的 failed generation 显式 retry 已通过 PR #71 合并，Issue #72 的 generation migration drift 已通过 PR #74 合并。当前优先推进 Issue #73 的前端 critique/audit/polish；后端 unknown generation reconciliation（#75）与 recovery phase 契约（#76）按依赖串行推进。
+当前 API 已提供健康检查、认证、项目/会话/任务、图像生成与恢复、反馈、项目偏好记忆、点数账户/账本、管理员账户管理和 Provider 配置接口；前端工作台已接入候选反馈、Visual Memory、个人账户与点数展示。DeepSeek 项目记忆总结为可选能力：反馈成功写入后，服务端在启用 `LLM_MEMORY_ENABLED=true` 且配置 `DEEPSEEK_API_KEY` 时，使用最近最多 12 条脱敏反馈更新项目记忆。
 
 ## 本地数据库（Docker 运行 PostgreSQL）
 
@@ -54,6 +54,30 @@ cd apps/api
 ```
 
 `.env` 中的 `TEVION_DB_URL` 可以覆盖默认的本地数据库 URL。测试使用独立的 `tevion_test` 数据库；当 PostgreSQL 无法连接时，相关测试会自动跳过。
+
+## 本地运行前端
+
+```bash
+cd apps/web
+python3 -m http.server 4173 --bind 127.0.0.1
+```
+
+前端默认请求 `http://127.0.0.1:8010/api/v1`。如需修改后端地址，可在页面加载前设置 `window.TEVION_API_BASE`。
+
+## 服务器运行
+
+生产环境使用 PostgreSQL、systemd 和独立的前端静态服务。API 与前端服务分别监听 `8010` 和 `4173`；生产环境变量应放在服务器上的受限文件中，不要提交 `.env` 或把 API Key 写入前端。部署后先执行：
+
+```bash
+systemctl status tevion-api.service tevion-web.service
+curl http://127.0.0.1:8010/health
+```
+
+数据库升级必须使用 Alembic：
+
+```bash
+apps/api/.venv/bin/alembic upgrade head
+```
 
 ## 项目原则
 

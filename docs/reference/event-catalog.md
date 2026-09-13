@@ -122,6 +122,8 @@ GET /api/v1/preferences?scope=project&task_id=<task_id>
 
 `project_preferences_for_task()` 会将当前 task 的反馈转换为 evidence，再合并匹配 scope 的 `PreferenceEvent`，交给 `PreferenceProjector`。来源权重为：`explicit_feedback=1.0`、`tagged_feedback=0.8`、`selection=0.7`、`usage=0.5`、`inference=0.2`。未 `consented` 的 `global` evidence 不参与投影；`deleted` evidence 移除对应 bucket。返回项包含 `key`、`value`、`source`、`confidence`（投影 weight）、`scope`、`scope_id` 与 `evidence_count`。
 
+当服务端配置 `LLM_MEMORY_ENABLED=true` 且存在 `DEEPSEEK_API_KEY` 时，反馈成功写入后会将最近 12 条反馈以脱敏结构发送给 DeepSeek，保存三个稳定项目偏好键：`视觉总结`、`避免方向`、`下一轮策略`。这些推断只属于当前项目，且不包含 prompt、图片 URL、Authorization 或 API key。下一次生成会把它们作为不覆盖用户当前需求的 guidance 注入，并在结果 metadata 的 `adopted_project_memory` 中记录采用的 key/evidence id。
+
 ## 6. Ownership 与隐私边界
 
 - 业务归属使用本地 `users.id`，不使用 email 作为 ownership key。

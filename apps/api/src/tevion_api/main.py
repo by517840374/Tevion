@@ -1,5 +1,6 @@
 import logging
 import os
+import secrets
 
 from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
@@ -33,6 +34,17 @@ from .provider import (
 from .schemas import (
     AuthTokenResponse,
     AuthUserResponse,
+    AdminCreditAdjustmentRequest,
+    AdminCreditAdjustmentResponse,
+    AdminAccessResponse,
+    AdminRoleRequest,
+    AdminCreateUserRequest,
+    AdminCreateUserResponse,
+    AdminPasswordRequest,
+    AdminPasswordResponse,
+    AdminUserView,
+    CreditBalanceResponse,
+    CreditLedgerView,
     CreateProjectRequest,
     CreateTaskRequest,
     DevTokenResponse,
@@ -54,6 +66,7 @@ from .schemas import (
     PreferenceView,
     ProductMetadata,
     ProductMetricsResponse,
+    ProfileUpdateRequest,
     ProjectListResponse,
     ProjectSummary,
     ReconciliationRequest,
@@ -70,8 +83,23 @@ from .schemas import (
 )
 
 logger = logging.getLogger(__name__)
+# Keep application lifecycle and integration events visible under uvicorn's
+# default logging configuration, including successful DeepSeek summaries.
+logging.getLogger("tevion_api").setLevel(logging.INFO)
 
 app = FastAPI(title="Tevion Product API", version="0.1.0")
+
+
+def _require_admin(user: User, db: OrmSession | None = None) -> User:
+    allowed = {item.strip() for item in os.environ.get("TEVION_ADMIN_SUBJECTS", "").split(",") if item.strip()}
+    if not user.is_super_admin and user.provider_subject not in allowed:
+        raise HTTPException(status_code=403, detail="admin access required")
+    # Bootstrap is only an entry point; persist the role after first access.
+    if not user.is_super_admin and user.provider_subject in allowed:
+        user.is_super_admin = True
+        if db is not None:
+            db.commit()
+    return user
 
 configure_cors(app)
 
@@ -320,6 +348,18 @@ def auth_me(current_user: User = Depends(get_current_user)) -> AuthUserResponse:
     )
 
 
+@app.patch("/api/v1/auth/me", response_model=AuthUserResponse)
+def update_auth_me(
+    payload: ProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> AuthUserResponse:
+    current_user.display_name = payload.display_name.strip() if payload.display_name else None
+    db.commit()
+    db.refresh(current_user)
+    return _auth_user_response(current_user)
+
+
 @app.get("/api/v1/projects", response_model=ProjectListResponse)
 def list_projects(
     current_user: User = Depends(get_current_user),
@@ -425,6 +465,155 @@ def list_project_tasks(
             )
         )
     return TaskListResponse(items=items)
+
+
+@app.get("/api/v1/credits", response_model=CreditBalanceResponse)
+def get_credit_balance(
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> CreditBalanceResponse:
+    return CreditBalanceResponse(balance_points=services.credit_balance_for_user(db, user_id=current_user.id))
+
+
+@app.get("/api/v1/admin/access", response_model=AdminAccessResponse)
+def admin_access(
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> AdminAccessResponse:
+    try:
+        _require_admin(current_user, db)
+    except HTTPException:
+        return AdminAccessResponse(allowed=False)
+    return AdminAccessResponse(allowed=True)
+
+
+@app.get("/api/v1/admin/users", response_model=list[AdminUserView])
+def admin_list_users(
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> list[AdminUserView]:
+    _require_admin(current_user, db)
+    return [
+        AdminUserView(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            provider_subject=user.provider_subject,
+            is_super_admin=user.is_super_admin,
+            balance_points=services.credit_balance_for_user(db, user_id=user.id),
+        )
+        for user in db.scalars(select(User).order_by(User.created_at, User.id))
+    ]
+
+
+@app.post("/api/v1/admin/users", response_model=AdminCreateUserResponse, status_code=201)
+def admin_create_user(
+    payload: AdminCreateUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> AdminCreateUserResponse:
+    _require_admin(current_user, db)
+    email = normalize_email(payload.email)
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="invalid email address")
+    if db.scalar(select(User).where(User.auth_provider == LOCAL_AUTH_PROVIDER, User.provider_subject == email)):
+        raise HTTPException(status_code=409, detail="account already exists")
+    temporary_password = payload.password or secrets.token_urlsafe(12)
+    user = User(
+        auth_provider=LOCAL_AUTH_PROVIDER,
+        provider_subject=email,
+        email=email,
+        password_hash=hash_password(temporary_password),
+        is_super_admin=payload.is_super_admin,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return AdminCreateUserResponse(
+        id=user.id, email=user.email, display_name=user.display_name,
+        provider_subject=user.provider_subject, is_super_admin=user.is_super_admin,
+        balance_points=0, temporary_password=None if payload.password else temporary_password,
+    )
+
+
+@app.get("/api/v1/admin/users/{user_id}/credits/ledger", response_model=list[CreditLedgerView])
+def admin_user_credit_ledger(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> list[CreditLedgerView]:
+    _require_admin(current_user, db)
+    if db.get(User, user_id) is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    return [
+        CreditLedgerView(
+            id=entry.id, delta_points=entry.delta_points, entry_type=entry.entry_type,
+            reason=entry.reason, reference_id=entry.reference_id, created_at=entry.created_at,
+        )
+        for entry in services.credit_ledger_for_user(db, user_id=user_id)
+    ]
+
+
+@app.put("/api/v1/admin/users/{user_id}/role", response_model=AdminUserView)
+def admin_set_user_role(
+    user_id: str,
+    payload: AdminRoleRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> AdminUserView:
+    _require_admin(current_user, db)
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if user.id == current_user.id and not payload.is_super_admin:
+        raise HTTPException(status_code=409, detail="cannot remove your own last admin access")
+    user.is_super_admin = payload.is_super_admin
+    db.commit()
+    return AdminUserView(
+        id=user.id, email=user.email, display_name=user.display_name,
+        provider_subject=user.provider_subject, is_super_admin=user.is_super_admin,
+        balance_points=services.credit_balance_for_user(db, user_id=user.id),
+    )
+
+
+@app.put("/api/v1/admin/users/{user_id}/password", response_model=AdminPasswordResponse)
+def admin_reset_user_password(
+    user_id: str,
+    payload: AdminPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> AdminPasswordResponse:
+    _require_admin(current_user, db)
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    temporary_password = payload.password or secrets.token_urlsafe(12)
+    user.password_hash = hash_password(temporary_password)
+    db.commit()
+    return AdminPasswordResponse(
+        user_id=user.id, temporary_password=None if payload.password else temporary_password
+    )
+
+
+@app.post("/api/v1/admin/credits/adjust", response_model=AdminCreditAdjustmentResponse)
+def admin_adjust_credits(
+    payload: AdminCreditAdjustmentRequest,
+    current_user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> AdminCreditAdjustmentResponse:
+    _require_admin(current_user)
+    target = db.get(User, payload.user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    try:
+        entry = services.adjust_credit_balance(db, user_id=target.id, points=payload.points, reason=payload.reason)
+    except services.InsufficientCreditsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return AdminCreditAdjustmentResponse(
+        user_id=target.id,
+        balance_points=services.credit_balance_for_user(db, user_id=target.id),
+        ledger_entry_id=entry.id,
+    )
 
 
 @app.get("/api/v1/sessions/{session_id}/versions", response_model=ImageVersionListResponse)
@@ -563,6 +752,13 @@ def _run_response(db: OrmSession, task: services.CreatedTask) -> GenerationRunRe
     )
 
 
+def _adopted_project_memory(db: OrmSession, run_id: str) -> list[dict]:
+    image = db.scalar(select(ImageVersion).where(ImageVersion.run_id == run_id).order_by(ImageVersion.created_at))
+    metadata = image.metadata_json if image is not None else {}
+    adopted = metadata.get("adopted_project_memory", []) if isinstance(metadata, dict) else []
+    return adopted if isinstance(adopted, list) else []
+
+
 @app.post("/api/v1/tasks/{task_id}/generate", response_model=GenerateResponse)
 def generate_task(
     task_id: str,
@@ -603,7 +799,19 @@ def generate_task(
         )
     else:
         claimed.run.parameters_json = parameters
-        images = services.execute_generation(db, claimed, provider)
+        try:
+            services.reserve_generation_credits(
+                db, user_id=current_user.id, run_id=claimed.run.id, points=services.generation_points(parameters)
+            )
+            images = services.execute_generation(db, claimed, provider)
+            if claimed.run.status == "completed":
+                services.settle_generation_credits(db, run_id=claimed.run.id)
+        except services.InsufficientCreditsError as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc
+        except Exception:
+            if claimed.run.status == "failed":
+                services.release_generation_credits(db, run_id=claimed.run.id, reason="生成失败，点数已释放")
+            raise
     db.commit()
     return GenerateResponse(
         task_id=claimed.session.id,
@@ -623,6 +831,7 @@ def generate_task(
         **_output_contract(
             claimed.run.parameters_json or parameters, actual_count=len(images), status=claimed.run.status
         ),
+        adopted_project_memory=_adopted_project_memory(db, claimed.run.id),
     )
 
 
@@ -657,7 +866,20 @@ def retry_task(
             **_output_contract(retried.run.parameters_json or {}, actual_count=0, status=retried.run.status),
         )
     else:
-        images = services.execute_generation(db, retried, provider)
+        try:
+            parameters = retried.run.parameters_json or {}
+            services.reserve_generation_credits(
+                db, user_id=current_user.id, run_id=retried.run.id, points=services.generation_points(parameters)
+            )
+            images = services.execute_generation(db, retried, provider)
+            if retried.run.status == "completed":
+                services.settle_generation_credits(db, run_id=retried.run.id)
+        except services.InsufficientCreditsError as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc
+        except Exception:
+            if retried.run.status == "failed":
+                services.release_generation_credits(db, run_id=retried.run.id, reason="重试失败，点数已释放")
+            raise
     return GenerateResponse(
         task_id=retried.session.id,
         status=TaskStatus(retried.session.status),
@@ -674,6 +896,7 @@ def retry_task(
             for image in images
         ],
         **_output_contract(retried.run.parameters_json or {}, actual_count=len(images), status=retried.run.status),
+        adopted_project_memory=_adopted_project_memory(db, retried.run.id),
     )
 
 
@@ -758,6 +981,10 @@ def reconcile_generation(
     )
     if reconciled is None:
         raise HTTPException(status_code=404, detail="generation run not found")
+    if reconciled.run.status == "completed":
+        services.settle_generation_credits(db, run_id=reconciled.run.id)
+    elif reconciled.run.status == "failed":
+        services.release_generation_credits(db, run_id=reconciled.run.id, reason="恢复确认失败，点数已释放")
     return _run_response(db, reconciled)
 
 
@@ -790,11 +1017,18 @@ def create_feedback(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    # Optional and best-effort: an unavailable LLM must not reject feedback.
+    memory_status = services.refresh_project_memory_with_llm(
+        db, user_id=current_user.id, task_id=task_id
+    )
+
     return FeedbackResponse(
         event_id=event.id,
         task_id=task_id,
         version_id=payload.version_id,
         event_type=event.event_type,
+        memory_status=memory_status,
+        memory_updated=memory_status == "updated",
     )
 
 

@@ -49,6 +49,7 @@ class User(Base):
     provider_subject: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255))
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     display_name: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = mapped_column(
@@ -59,6 +60,48 @@ class User(Base):
     __table_args__ = (UniqueConstraint("auth_provider", "provider_subject", name="uq_users_provider_subject"),)
 
     projects: Mapped[list["Project"]] = relationship(back_populates="user")
+    credit_account: Mapped["CreditAccount | None"] = relationship(back_populates="user", uselist=False)
+
+
+class CreditAccount(Base):
+    __tablename__ = "credit_accounts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("credit"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    balance_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="credit_account")
+    ledger_entries: Mapped[list["CreditLedgerEntry"]] = relationship(back_populates="account")
+
+
+class CreditLedgerEntry(Base):
+    __tablename__ = "credit_ledger"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("credit_entry"))
+    account_id: Mapped[str] = mapped_column(ForeignKey("credit_accounts.id", ondelete="CASCADE"), nullable=False)
+    delta_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    entry_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    reference_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = _ts()
+
+    account: Mapped[CreditAccount] = relationship(back_populates="ledger_entries")
+
+
+class CreditReservation(Base):
+    __tablename__ = "credit_reservations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: _new_id("reservation"))
+    account_id: Mapped[str] = mapped_column(ForeignKey("credit_accounts.id", ondelete="CASCADE"), nullable=False)
+    generation_run_id: Mapped[str] = mapped_column(ForeignKey("generation_runs.id", ondelete="CASCADE"), nullable=False, unique=True)
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="reserved")
+    created_at: Mapped[datetime] = _ts()
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    account: Mapped[CreditAccount] = relationship()
 
 
 class Project(Base):

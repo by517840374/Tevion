@@ -79,6 +79,6 @@ def test_upgraded_test_database_has_no_model_drift(migration_database) -> None:
     command.check(_alembic_config())
 
     with migration_database.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "c7e8f9a0b1c2"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "e3f4a5b6c7d8"
         columns = {column["name"] for column in inspect(migration_database).get_columns("preference_events")}
         assert {"preference_id", "status"} <= columns

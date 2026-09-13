@@ -12,6 +12,87 @@ class ProductMetadata(BaseModel):
     provider_status: str = "not_configured"
 
 
+class CreditBalanceResponse(BaseModel):
+    balance_points: int
+    next_generation_points: int | None = None
+
+
+class AdminCreditAdjustmentRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64)
+    points: int = Field(ge=-1_000_000, le=1_000_000)
+    reason: str = Field(min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def points_must_not_be_zero(self) -> "AdminCreditAdjustmentRequest":
+        if self.points == 0:
+            raise ValueError("points must not be zero")
+        return self
+
+
+class AdminCreditAdjustmentResponse(BaseModel):
+    user_id: str
+    balance_points: int
+    ledger_entry_id: str
+
+
+class AdminAccessResponse(BaseModel):
+    allowed: bool
+
+
+class AdminUserView(BaseModel):
+    id: str
+    email: str | None = None
+    display_name: str | None = None
+    provider_subject: str
+    is_super_admin: bool
+    balance_points: int
+
+
+class AdminRoleRequest(BaseModel):
+    is_super_admin: bool
+
+
+class AdminCreateUserRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    is_super_admin: bool = False
+
+
+class AdminCreateUserResponse(AdminUserView):
+    temporary_password: str | None = None
+
+
+class AdminPasswordRequest(BaseModel):
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    confirm_password: str | None = Field(default=None, min_length=8, max_length=256)
+
+    @model_validator(mode="after")
+    def passwords_must_match(self) -> "AdminPasswordRequest":
+        if (self.password is None) != (self.confirm_password is None):
+            raise ValueError("password and confirm_password are both required")
+        if self.password is not None and self.password != self.confirm_password:
+            raise ValueError("passwords do not match")
+        return self
+
+
+class AdminPasswordResponse(BaseModel):
+    user_id: str
+    temporary_password: str | None = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    display_name: str | None = Field(default=None, max_length=120)
+
+
+class CreditLedgerView(BaseModel):
+    id: str
+    delta_points: int
+    entry_type: str
+    reason: str
+    reference_id: str
+    created_at: datetime
+
+
 class ImageProviderConfigRequest(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     api_key: str = Field(min_length=1, max_length=1000)
@@ -226,6 +307,7 @@ class GenerateResponse(BaseModel):
     output_completeness: Literal["complete", "partial", "empty"] = "empty"
     output_shortfall: int = 0
     retryable: bool = False
+    adopted_project_memory: list[dict] = Field(default_factory=list)
 
 
 class ReconciliationRequest(BaseModel):
@@ -312,6 +394,8 @@ class FeedbackResponse(BaseModel):
     task_id: str
     version_id: str
     event_type: str
+    memory_status: Literal["updated", "disabled", "failed"]
+    memory_updated: bool
 
 
 PreferenceScope = Literal["project", "session", "user"]
@@ -377,3 +461,5 @@ class ProductMetricsResponse(BaseModel):
     active_count: int = 0
     needs_user_review_count: int = 0
     unavailable_metrics: list[str] = Field(default_factory=list)
+    scope: str | None = None
+    project_id: str | None = None

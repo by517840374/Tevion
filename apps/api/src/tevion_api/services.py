@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session as OrmSession
 from .assets import AssetError, LocalAssetStore, build_asset_store
 from .execution_jobs import enqueue_lifecycle_jobs
 from .learning import FeedbackEvidence, PreferenceProjector, ProjectedPreference
+from .llm_memory import DeepSeekMemorySummarizer
 from .models import (
+    CreditAccount,
+    CreditLedgerEntry,
+    CreditReservation,
     FeedbackEvent,
     GenerationRun,
     ImageVersion,
@@ -154,6 +158,103 @@ def transition_generation_status(run: GenerationRun, status: str) -> None:
 
 class ProjectNotFoundError(ValueError):
     """Raised when a requested project is not owned by the current user."""
+
+
+class InsufficientCreditsError(ValueError):
+    """Raised when a generation cannot be reserved within the user's balance."""
+
+
+def generation_points(parameters: dict) -> int:
+    """Launch pricing in integer points, independent from provider USD cost."""
+    count = max(1, min(int(parameters.get("output_count") or 1), 4))
+    return count * (15 if parameters.get("parent_image_id") else 10)
+
+
+def reserve_generation_credits(db: OrmSession, *, user_id: str, run_id: str, points: int) -> CreditReservation:
+    existing = db.scalar(select(CreditReservation).where(CreditReservation.generation_run_id == run_id))
+    if existing is not None:
+        return existing
+    account = db.scalar(select(CreditAccount).where(CreditAccount.user_id == user_id).with_for_update())
+    if account is None:
+        account = CreditAccount(user_id=user_id, balance_points=0)
+        db.add(account)
+        db.flush()
+    if account.balance_points < points:
+        raise InsufficientCreditsError(f"需要 {points} 点，当前余额 {account.balance_points} 点")
+    account.balance_points -= points
+    reservation = CreditReservation(account=account, generation_run_id=run_id, points=points, status="reserved")
+    db.add(reservation)
+    db.add(CreditLedgerEntry(
+        account=account, delta_points=-points, entry_type="generation_reservation",
+        reference_id=f"reservation:{run_id}", reason="生成任务预扣",
+    ))
+    db.commit()
+    db.refresh(reservation)
+    return reservation
+
+
+def settle_generation_credits(db: OrmSession, *, run_id: str) -> CreditReservation | None:
+    reservation = db.scalar(select(CreditReservation).where(CreditReservation.generation_run_id == run_id).with_for_update())
+    if reservation is None or reservation.status != "reserved":
+        return reservation
+    reservation.status = "settled"
+    reservation.settled_at = datetime.now(timezone.utc)
+    db.commit()
+    return reservation
+
+
+def release_generation_credits(db: OrmSession, *, run_id: str, reason: str) -> CreditReservation | None:
+    reservation = db.scalar(select(CreditReservation).where(CreditReservation.generation_run_id == run_id).with_for_update())
+    if reservation is None or reservation.status != "reserved":
+        return reservation
+    account = db.scalar(select(CreditAccount).where(CreditAccount.id == reservation.account_id).with_for_update())
+    if account is None:
+        raise ValueError("credit account not found")
+    account.balance_points += reservation.points
+    reservation.status = "released"
+    reservation.settled_at = datetime.now(timezone.utc)
+    db.add(CreditLedgerEntry(
+        account=account, delta_points=reservation.points, entry_type="generation_release",
+        reference_id=f"release:{run_id}", reason=reason[:255],
+    ))
+    db.commit()
+    return reservation
+
+
+def credit_balance_for_user(db: OrmSession, *, user_id: str) -> int:
+    account = db.scalar(select(CreditAccount).where(CreditAccount.user_id == user_id))
+    return account.balance_points if account else 0
+
+
+def credit_ledger_for_user(db: OrmSession, *, user_id: str, limit: int = 50) -> list[CreditLedgerEntry]:
+    account = db.scalar(select(CreditAccount).where(CreditAccount.user_id == user_id))
+    if account is None:
+        return []
+    return list(db.scalars(
+        select(CreditLedgerEntry)
+        .where(CreditLedgerEntry.account_id == account.id)
+        .order_by(CreditLedgerEntry.created_at.desc(), CreditLedgerEntry.id.desc())
+        .limit(max(1, min(limit, 100)))
+    ))
+
+
+def adjust_credit_balance(db: OrmSession, *, user_id: str, points: int, reason: str) -> CreditLedgerEntry:
+    account = db.scalar(select(CreditAccount).where(CreditAccount.user_id == user_id).with_for_update())
+    if account is None:
+        account = CreditAccount(user_id=user_id, balance_points=0)
+        db.add(account)
+        db.flush()
+    if account.balance_points + points < 0:
+        raise InsufficientCreditsError("调整后余额不能为负数")
+    account.balance_points += points
+    entry = CreditLedgerEntry(
+        account=account, delta_points=points, entry_type="admin_adjustment",
+        reference_id=f"admin:{uuid.uuid4().hex}", reason=reason[:255],
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
 
 
 class GenerationExecutionAdapter(Protocol):
@@ -609,6 +710,77 @@ def record_feedback_event(
     return event
 
 
+def refresh_project_memory_with_llm(
+    db: OrmSession, *, user_id: str, task_id: str
+) -> str:
+    """Best-effort project summary; feedback must never depend on the LLM.
+
+    Returns a small public status so the UI can distinguish an updated memory
+    from an intentionally disabled or failed optional integration.
+    """
+    summarizer = DeepSeekMemorySummarizer.from_environment()
+    if summarizer is None:
+        return "disabled"
+    task = get_task_for_user(db, user_id, task_id)
+    if task is None:
+        summarizer.close()
+        return "failed"
+    events = list_feedback_events_for_project(
+        db, user_id=user_id, project_id=task.session.project_id, limit=12
+    )
+    evidence = [
+        {
+            "event_type": event.event_type,
+            "selected": bool((event.payload_json or {}).get("selected")),
+            "rejected": bool((event.payload_json or {}).get("rejected")),
+            "direction": (event.payload_json or {}).get("direction"),
+            "rejection_reason": (event.payload_json or {}).get("rejection_reason"),
+        }
+        for event in events
+    ]
+    try:
+        summary = summarizer.summarize(evidence)
+        values = {
+            "视觉总结": summary.summary,
+            "避免方向": "、".join(summary.avoid) if summary.avoid else "暂无明确需要避免的方向",
+            "下一轮策略": summary.guidance,
+        }
+        for key, value in values.items():
+            db.add(
+                PreferenceEvent(
+                    preference_id=f"llm:{task.session.project_id}:{key}",
+                    user_id=user_id,
+                    scope="project",
+                    scope_id=task.session.project_id,
+                    key=key,
+                    value=value[:255],
+                    source="inference",
+                    confidence=0.8,
+                    status="active",
+                )
+            )
+        db.commit()
+        logger.info(
+            "project_memory_summary_updated task_id=%s project_id=%s feedback_count=%d summary_updated=true",
+            task_id,
+            task.session.project_id,
+            len(events),
+        )
+        return "updated"
+    except Exception:  # noqa: BLE001 - optional service is non-blocking
+        db.rollback()
+        logger.warning(
+            "project_memory_summary_failed task_id=%s project_id=%s feedback_count=%d summary_updated=false",
+            task_id,
+            task.session.project_id,
+            len(events),
+            exc_info=True,
+        )
+        return "failed"
+    finally:
+        summarizer.close()
+
+
 def list_feedback_events_for_task(db: OrmSession, *, user_id: str, task_id: str) -> list[FeedbackEvent]:
     return list(
         db.scalars(
@@ -833,6 +1005,29 @@ def project_preferences_for_task(
     )
 
 
+def generation_prompt_with_project_memory(
+    db: OrmSession, task: CreatedTask, *, user_id: str, base_prompt: str
+) -> tuple[str, list[ProjectedPreference]]:
+    """Add bounded, owned project guidance without replacing the user's request."""
+    preferences = project_preferences_for_task(db, user_id=user_id, task_id=task.session.id, scope="project")
+    usable = [item for item in preferences if item.key not in {"image_version_id", "选中的候选图"}]
+    if not usable:
+        return base_prompt, []
+    summary = next((item.value for item in usable if item.key == "视觉总结"), None)
+    avoid = next((item.value for item in usable if item.key == "避免方向"), None)
+    guidance = next((item.value for item in usable if item.key == "下一轮策略"), None)
+    lines = ["用户当前需求：", base_prompt.strip(), "", "项目已确认视觉记忆（仅作参考，不覆盖当前需求）："]
+    if summary:
+        lines.append(f"- 已确认偏好：{summary}")
+    if avoid:
+        lines.append(f"- 项目应避免：{avoid}")
+    if guidance:
+        lines.append(f"- 本轮策略：{guidance}")
+    other = [item for item in usable if item.key not in {"视觉总结", "避免方向", "下一轮策略"}]
+    lines.extend(f"- {item.key}：{item.value}" for item in other[:5])
+    return "\n".join(lines), usable
+
+
 def _latest_preference(db: OrmSession, user_id: str, preference_id: str) -> PreferenceEvent | None:
     events = list(
         db.scalars(
@@ -982,8 +1177,11 @@ def execute_generation(
         run.started_at = now
     db.flush()
 
+    prompt, adopted_memory = generation_prompt_with_project_memory(
+        db, task, user_id=run.user_id or "", base_prompt=session.raw_request or ""
+    )
     request = GenerationRequest(
-        prompt=session.raw_request or "",
+        prompt=prompt,
         output_count=int(parameters.get("output_count") or 1),
         aspect_ratio=str(parameters.get("aspect_ratio") or "1:1"),
         quality=str(parameters.get("quality") or "low"),
@@ -1110,6 +1308,9 @@ def execute_generation(
     metadata["model"] = result.model_name
     metadata["provider_request_id"] = result.provider_request_id
     metadata["metadata_source"] = result.metadata_source
+    metadata["adopted_project_memory"] = [
+        {"key": item.key, "evidence_ids": list(item.evidence_ids)} for item in adopted_memory
+    ]
     width, height = _parse_pixel_size(metadata.get("size"))
     # Every provider result must be downloaded and persisted before it is exposed
     # to the client. Provider URLs may expire; the database should retain only a
@@ -1278,8 +1479,11 @@ def reconcile_generation(
     transition_session_status(session, "awaiting_selection")
     if not db.scalar(select(ImageVersion).where(ImageVersion.run_id == run.id)):
         parameters = run.parameters_json or {}
+        prompt, adopted_memory = generation_prompt_with_project_memory(
+            db, task, user_id=run.user_id or "", base_prompt=session.raw_request or ""
+        )
         request = GenerationRequest(
-            prompt=session.raw_request or "",
+            prompt=prompt,
             output_count=int(parameters.get("output_count") or 1),
             aspect_ratio=str(parameters.get("aspect_ratio") or "1:1"),
             quality=str(parameters.get("quality") or "low"),
@@ -1291,6 +1495,9 @@ def reconcile_generation(
                 "model": result.model_name,
                 "provider_request_id": provider_request_id,
                 "metadata_source": result.metadata_source,
+                "adopted_project_memory": [
+                    {"key": item.key, "evidence_ids": list(item.evidence_ids)} for item in adopted_memory
+                ],
             }
         )
         width, height = _parse_pixel_size(metadata.get("size"))

@@ -1,7 +1,10 @@
 /* Tevion 前端工作台 - 连接真实后端 API
  * 后端地址如有变化，只需修改 API_BASE。
  */
-const API_BASE = window.TEVION_API_BASE || 'http://127.0.0.1:8010/api/v1';
+const defaultApiBase = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+  ? 'http://127.0.0.1:8010/api/v1'
+  : window.location.protocol + '//' + window.location.hostname + ':8010/api/v1';
+const API_BASE = window.TEVION_API_BASE || defaultApiBase;
 
 const OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
 const TOKEN_KEY = 'tevion_token';
@@ -501,12 +504,27 @@ function updateCreditEstimate() {
 
 async function loadCredits() {
   const target = $('creditBalance');
-  if (!target || !getToken()) { if (target) target.hidden = true; return; }
+  const accountPoints = $('authPoints');
+  if (!getToken()) { if (target) target.hidden = true; if (accountPoints) accountPoints.textContent = '余额 -- 点'; return; }
   try {
     const data = await api('/credits');
-    target.textContent = '余额 ' + Number(data?.balance_points || 0) + ' 点';
-    target.hidden = false;
-  } catch (_) { target.hidden = true; }
+    const label = '余额 ' + Number(data?.balance_points || 0) + ' 点';
+    if (target) { target.textContent = label; target.hidden = false; }
+    if (accountPoints) accountPoints.textContent = label;
+  } catch (_) { if (target) target.hidden = true; if (accountPoints) accountPoints.textContent = '余额暂不可用'; }
+}
+
+async function loadAccountSummary() {
+  if (!getToken()) return;
+  try {
+    const user = await api('/auth/me');
+    const name = user.display_name || user.email || user.provider_subject || 'Tevion 用户';
+    $('authName').textContent = name;
+    $('authAvatar').textContent = name.trim().charAt(0).toUpperCase() || 'T';
+  } catch (_) {
+    $('authName').textContent = 'Tevion 用户';
+    $('authAvatar').textContent = 'T';
+  }
 }
 
 async function loadAdminAccess() {
@@ -520,7 +538,7 @@ async function loadAdminAccess() {
 }
 
 async function loadAdminPage() {
-  const status = $('adminStatus'), form = $('adminCreditForm');
+  const status = $('adminStatus'), form = $('adminCreditForm'), list = $('adminUserList');
   if (!status || !form) return;
   status.textContent = '正在检查管理员权限…'; form.hidden = true;
   try {
@@ -528,6 +546,8 @@ async function loadAdminPage() {
     if (!allowed) { status.textContent = '当前账号没有管理员权限。'; return; }
     status.textContent = '权限已确认。所有调整都会写入点数账本。';
     form.hidden = false;
+    const users = await api('/admin/users');
+    if (list) list.innerHTML = users.map(user => '<tr><td><strong>' + escapeHtml(user.email || user.provider_subject) + '</strong><small>' + escapeHtml(user.id) + '</small></td><td><span class="admin-balance">' + Number(user.balance_points || 0) + ' 点</span></td><td><span class="admin-role ' + (user.is_super_admin ? 'active' : '') + '">' + (user.is_super_admin ? 'super admin' : '普通用户') + '</span></td><td><button type="button" class="small-button" data-admin-select="' + escapeHtml(user.id) + '" data-admin-user="' + escapeHtml(user.id) + '">分配点数</button><button type="button" class="text-button" data-admin-password="' + escapeHtml(user.id) + '" data-admin-name="' + escapeHtml(user.email || user.provider_subject) + '">改密码</button><button type="button" class="text-button" data-admin-ledger="' + escapeHtml(user.id) + '" data-admin-name="' + escapeHtml(user.email || user.provider_subject) + '">查看流水</button><button type="button" class="text-button" data-admin-user="' + escapeHtml(user.id) + '" data-admin-role="' + (user.is_super_admin ? 'false' : 'true') + '">' + (user.is_super_admin ? '收回权限' : '设为管理员') + '</button></td></tr>').join('') || '<tr><td colspan="4" class="muted">暂无用户。</td></tr>';
   } catch (_) { status.textContent = '权限检查失败，请稍后重试。'; }
 }
 
@@ -667,6 +687,7 @@ function refreshLoginUI() {
   if (cta) cta.hidden = has || results.classList.contains('results') || results.querySelector('.error-box');
   loadMetrics();
   loadCredits();
+  loadAccountSummary();
   loadAdminAccess();
   if (has) loadProjects();
 }
@@ -1422,7 +1443,16 @@ async function handleCandidateAction(action, id) {
       $('selectionNote').textContent = '已选择 ' + id + ' · 反馈已提交';
       toast('已提交选择反馈：' + id, 'success', 3000);
     }
-    renderFeedbackStatus('反馈已提交。', false);
+    const memoryStatus = resp?.memory_status;
+    const memoryMessage = memoryStatus === 'updated'
+      ? '反馈已保存，项目记忆已更新。右侧可查看。'
+      : memoryStatus === 'disabled'
+        ? '反馈已保存，项目记忆总结未启用。'
+        : memoryStatus === 'failed'
+          ? '反馈已保存，但项目记忆更新失败；当前反馈不会丢失。'
+          : '反馈已保存，正在刷新项目记忆…';
+    renderFeedbackStatus(memoryMessage, false);
+    toast(memoryMessage, memoryStatus === 'failed' ? 'info' : 'success', 5000);
     if (resp) await refreshVisualMemory();
   } catch (err) {
     renderFeedbackStatus('反馈提交失败：' + err.message, true);
@@ -1665,12 +1695,109 @@ $('adminCreditForm')?.addEventListener('submit', async event => {
     toast('点数调整失败：' + err.message, 'error');
   }
 });
+$('closeCreditModal')?.addEventListener('click', () => $('creditModal').close());
+$('cancelCreditModal')?.addEventListener('click', () => $('creditModal').close());
+$('closeLedgerModal')?.addEventListener('click', () => $('ledgerModal').close());
+$('newAdminUserBtn')?.addEventListener('click', () => {
+  $('newUserForm')?.reset();
+  $('newUserMessage').textContent = '';
+  $('newUserModal')?.showModal();
+});
+$('closeNewUserModal')?.addEventListener('click', () => $('newUserModal').close());
+$('cancelNewUserModal')?.addEventListener('click', () => $('newUserModal').close());
+$('closePasswordModal')?.addEventListener('click', () => $('passwordModal').close());
+$('cancelPasswordModal')?.addEventListener('click', () => $('passwordModal').close());
+$('passwordForm')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  const message = $('passwordMessage');
+  message.textContent = '正在修改密码…';
+  try {
+    const body = {};
+    if ($('adminNewPassword').value) {
+      body.password = $('adminNewPassword').value;
+      body.confirm_password = $('adminConfirmPassword').value;
+    }
+    const data = await api('/admin/users/' + encodeURIComponent($('passwordUserId').value) + '/password', { method: 'PUT', body });
+    message.textContent = data.temporary_password ? '密码已修改。新密码（仅显示这一次）：' + data.temporary_password : '密码已修改并安全保存。';
+    toast('用户密码已修改。', 'success');
+  } catch (err) { message.textContent = '修改失败：' + err.message; }
+});
+$('newUserForm')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  const message = $('newUserMessage');
+  message.textContent = '正在创建用户…';
+  try {
+    const body = { email: $('newUserEmail').value.trim(), is_super_admin: $('newUserAdmin').checked };
+    if ($('newUserPassword').value) body.password = $('newUserPassword').value;
+    const data = await api('/admin/users', { method: 'POST', body });
+    message.textContent = data.temporary_password
+      ? '用户已创建。系统生成的初始密码（仅显示这一次）：' + data.temporary_password
+      : '用户已创建，密码已安全保存。';
+    await loadAdminPage();
+    toast('用户创建成功。', 'success');
+  } catch (err) { message.textContent = '创建失败：' + err.message; }
+});
+$('adminUserList')?.addEventListener('click', async event => {
+  const button = event.target.closest('[data-admin-user], [data-admin-ledger], [data-admin-password]');
+  if (!button) return;
+  if (button.dataset.adminSelect) {
+    $('adminUserId').value = button.dataset.adminSelect;
+    $('adminSelectedUser').textContent = '已选择 ' + button.dataset.adminSelect;
+    $('adminCreditForm').reset();
+    $('adminUserId').value = button.dataset.adminSelect;
+    $('adminSelectedUser').textContent = '已选择 ' + button.dataset.adminSelect;
+    $('creditModal').showModal();
+    $('adminPoints').focus();
+    return;
+  }
+  if (button.dataset.adminLedger) {
+    try {
+      const entries = await api('/admin/users/' + encodeURIComponent(button.dataset.adminLedger) + '/credits/ledger');
+      $('ledgerModalUser').textContent = button.dataset.adminName || button.dataset.adminLedger;
+      $('ledgerList').innerHTML = entries.map(entry => '<tr><td>' + escapeHtml(taskDate(entry.created_at)) + '</td><td class="' + (entry.delta_points >= 0 ? 'ledger-positive' : 'ledger-negative') + '">' + (entry.delta_points >= 0 ? '+' : '') + entry.delta_points + ' 点</td><td>' + escapeHtml(entry.entry_type) + '</td><td>' + escapeHtml(entry.reason) + '</td></tr>').join('') || '<tr><td colspan="4" class="muted">暂无流水记录。</td></tr>';
+      $('ledgerModal').showModal();
+    } catch (err) { toast('流水读取失败：' + err.message, 'error'); }
+    return;
+  }
+  if (button.dataset.adminPassword) {
+    $('passwordForm').reset();
+    $('passwordUserId').value = button.dataset.adminPassword;
+    $('passwordUser').textContent = button.dataset.adminName || button.dataset.adminPassword;
+    $('passwordMessage').textContent = '';
+    $('passwordModal').showModal();
+    $('adminNewPassword').focus();
+    return;
+  }
+  try {
+    await api('/admin/users/' + encodeURIComponent(button.dataset.adminUser) + '/role', { method: 'PUT', body: { is_super_admin: button.dataset.adminRole === 'true' } });
+    await loadAdminPage();
+    toast('管理员权限已更新。', 'success');
+  } catch (err) { toast('权限更新失败：' + err.message, 'error'); }
+});
 $('clearProviderSettingsBtn')?.addEventListener('click', clearProviderSettings);
 $('manageProjectsBtn')?.addEventListener('click', () => routeTo('projects'));
 $('workbenchNewProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
 $('backToProjectsBtn')?.addEventListener('click', () => routeTo('projects'));
 $('cancelProjectBtn')?.addEventListener('click', () => routeTo('projects'));
 $('logoutBtn').addEventListener('click', handleLogout);
+$('aestheticProfileBtn')?.addEventListener('click', () => {
+  $('authChip').open = false;
+  routeTo('workbench');
+  window.setTimeout(() => {
+    $('contextPrimary')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    refreshVisualMemory();
+  }, 150);
+});
+$('authChip')?.addEventListener('click', event => {
+  if (event.target.closest('.account-menu-button')) $('authChip').open = false;
+});
+document.addEventListener('click', event => {
+  const menu = $('authChip');
+  if (menu?.open && !menu.contains(event.target)) menu.open = false;
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && $('authChip')?.open) $('authChip').open = false;
+});
 $('authForm')?.addEventListener('submit', submitAuth);
 $('devTokenBtn')?.addEventListener('click', handleLogin);
 $('oidcBtn')?.addEventListener('click', async () => { if (!(await startOidcLogin())) $('authMessage').textContent = 'OIDC 尚未配置，请使用邮箱登录或本地 dev-token。'; });
@@ -1774,7 +1901,27 @@ $('results').addEventListener('click', e => {
 
 /* 图片加载失败的全局兜底（个别候选图加载超时） */
 $('memoryBtn').addEventListener('click', () => refreshVisualMemory());
-$('profileBtn').addEventListener('click', () => toast('审美画像功能将在后续版本开放。', 'info'));
+$('profileBtn').addEventListener('click', async () => {
+  try {
+    const user = await api('/auth/me');
+    const credits = await api('/credits');
+    $('profileEmail').value = user.email || user.provider_subject || '';
+    $('profileCredits').textContent = Number(credits?.balance_points || 0) + ' 点';
+    $('profileDisplayName').value = user.display_name || '';
+    $('profileMessage').textContent = '';
+    $('profileModal').showModal();
+  } catch (err) { toast('个人信息读取失败：' + err.message, 'error'); }
+});
+$('closeProfileModal')?.addEventListener('click', () => $('profileModal').close());
+$('cancelProfileModal')?.addEventListener('click', () => $('profileModal').close());
+$('profileForm')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api('/auth/me', { method: 'PATCH', body: { display_name: $('profileDisplayName').value.trim() || null } });
+    $('profileMessage').textContent = '个人信息已保存。';
+    toast('个人信息已更新。', 'success');
+  } catch (err) { $('profileMessage').textContent = '保存失败：' + err.message; }
+});
 
 handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(() => {
   refreshLoginUI();

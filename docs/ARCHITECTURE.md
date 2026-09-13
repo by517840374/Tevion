@@ -99,6 +99,12 @@ Do not store secrets, raw authorization headers, or private assets in logs.
 - Global strategy data is consented, minimized, anonymized, and evaluated offline.
 - Private cases never enter another user's retrieval results.
 
+项目级视觉记忆的闭环为：`FeedbackEvent` → 最近 12 条项目反馈 → 可选的
+DeepSeek 结构化总结 → `PreferenceEvent(scope=project, source=inference)` →
+下一次 Explore/Refine 的 prompt guidance。DeepSeek 只负责总结，不负责权限、范围
+或最终决策；调用失败时反馈仍成功，确定性偏好投影仍可用。生成 metadata 会记录
+本轮采用的记忆 key 与 evidence id，供审计和前端展示“本轮采用的项目记忆”。
+
 ## Authentication and authorization
 
 ```text

@@ -4,6 +4,21 @@
 .auth-chip{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--accent);border:1px solid #40533d;background:#1a2119;padding:8px 12px;border-radius:5px}
 .auth-chip .status-dot{width:6px;height:6px}
 .auth-chip .text-button{padding:0;margin-left:4px;font-size:11px}
+.account-menu{position:relative;display:block;padding:0;min-width:154px;border-radius:9px;z-index:20}
+.account-menu[open]{background:#1a2119;border-color:#66815b}
+.account-summary{display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;list-style:none;outline:none}
+.account-summary::-webkit-details-marker{display:none}
+.account-summary::after{content:'⌄';margin-left:auto;color:var(--muted);font-size:13px;line-height:1}
+.account-summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:7px}
+.account-avatar{display:grid;place-items:center;width:27px;height:27px;flex:none;border-radius:50%;background:var(--accent);color:#172013;font-size:12px;font-weight:800}
+.account-copy{display:grid;gap:2px;min-width:0;text-align:left}
+.account-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-copy span:first-child{max-width:112px;color:var(--ink);font-size:11px;font-weight:650}
+.account-copy span:last-child{color:var(--accent);font-size:10px}
+.account-menu-actions{position:absolute;top:calc(100% + 8px);right:0;display:grid;gap:3px;width:170px;padding:7px;border:1px solid #66815b;border-radius:9px;background:#1a2119;box-shadow:0 16px 34px rgba(0,0,0,.34)}
+.account-menu-button{width:100%;padding:8px 9px;border:0;border-radius:6px;background:transparent;color:var(--ink);font:inherit;font-size:11px;text-align:left;cursor:pointer}
+.account-menu-button:hover,.account-menu-button:focus-visible{background:#253125;color:var(--accent);outline:none}
+.account-menu-button.danger:hover,.account-menu-button.danger:focus-visible{color:#e8a08e}
 #loginHint{margin-top:10px;color:#b39b64}
 #loginHint.on{color:#687269}
 
@@ -109,7 +124,8 @@ button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px sol
 .regen-button:hover{background:#2a3527}
 
 @media(max-width:1050px){.workspace{grid-template-columns:280px 1fr}.right-column{display:none}}
-@media(max-width:700px){.topbar{padding:0 16px}.topbar-meta{display:none}.auth-chip span{display:none}.workspace{display:block;min-height:0}.sidebar,.center-column,.right-column{padding:24px 16px}.sidebar h1{font-size:26px;margin-bottom:26px}.center-column{padding-top:30px}.right-column{display:block;border:1px solid var(--line);border-top:0}.topbar{height:62px}.topbar-actions{gap:6px}.topbar-actions #profileBtn{display:none}.candidate-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.candidate-meta{padding:9px;align-items:flex-start;flex-wrap:wrap}.candidate-meta .card-info{width:100%}.select-candidate{flex:1}.reject-candidate{flex:0 0 auto}.gen-steps{overflow-x:auto;white-space:nowrap;padding-bottom:4px}.mode-switch{overflow-x:auto}.mode{flex:0 0 auto}}
+@media(max-width:700px){.topbar{padding:0 16px}.topbar-meta{display:none}.workspace{display:block;min-height:0}.sidebar,.center-column,.right-column{padding:24px 16px}.sidebar h1{font-size:26px;margin-bottom:26px}.center-column{padding-top:30px}.right-column{display:block;border:1px solid var(--line);border-top:0}.topbar{height:62px}.topbar-actions{gap:6px;max-width:calc(100vw - 108px);overflow-x:auto;overflow-y:visible;scrollbar-width:none;flex-wrap:nowrap;padding-bottom:2px}.topbar-actions::-webkit-scrollbar{display:none}.topbar-actions button{flex:0 0 auto;white-space:nowrap}.account-menu{min-width:148px;flex:none}.account-copy span:first-child{max-width:96px}.candidate-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.candidate-meta{padding:9px;align-items:flex-start;flex-wrap:wrap}.candidate-meta .card-info{width:100%}.select-candidate{flex:1}.reject-candidate{flex:0 0 auto}.gen-steps{overflow-x:auto;white-space:nowrap;padding-bottom:4px}.mode-switch{overflow-x:auto}.mode{flex:0 0 auto}}
+@media(max-width:700px){.account-menu-actions{position:fixed;top:70px;right:16px}}
 
 /* File inputs are intentionally styled as a clear two-step upload flow. */
 .upload-heading{display:flex;justify-content:space-between;align-items:center}.refine-upload input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.file-picker-button,.upload-reference-button{display:flex;align-items:center;justify-content:center;width:100%;margin-top:9px;text-align:center}.file-picker-button{background:#253125}.upload-reference-button:not(:disabled){background:var(--accent);color:#162013;border-color:var(--accent);box-shadow:0 7px 18px rgba(201,243,108,.12)}
@@ -274,6 +290,38 @@ body[data-route="register"] .topbar-meta { color:#718072; }
 .credit-balance { margin-left:14px; color:var(--accent); font-size:11px; }
 .credit-estimate { margin:8px 0 0; color:var(--muted); font-size:10px; line-height:1.5; text-align:center; }
 .admin-credit-summary { border-top:1px solid var(--line); padding-top:18px; }
+.admin-user-section { margin-top:36px; padding-top:24px; border-top:1px solid var(--line); }
+.admin-user-section h2,.admin-form-heading h2 { margin:0 0 8px; color:var(--ink); font-size:20px; }
+.admin-table-wrap { margin-top:18px; overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
+.admin-user-table { width:100%; min-width:620px; border-collapse:collapse; text-align:left; }
+.admin-user-table th { padding:11px 14px; color:var(--muted); background:rgba(148,177,143,.05); font-size:10px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; }
+.admin-user-table td { padding:14px; border-top:1px solid var(--line); color:var(--ink); font-size:12px; vertical-align:middle; }
+.admin-user-table td:first-child { max-width:230px; }
+.admin-user-table td:first-child strong,.admin-user-table td:first-child small { display:block; overflow-wrap:anywhere; }
+.admin-user-table td:first-child small { margin-top:4px; color:var(--muted); font-size:10px; }
+.admin-balance { color:var(--accent); font-size:15px; font-weight:650; white-space:nowrap; }
+.admin-role { color:var(--muted); font-size:10px; }
+.admin-role.active { color:var(--accent); }
+.admin-user-table td:last-child { white-space:nowrap; }
+.admin-user-table td:last-child button { margin-right:8px; }
+.admin-form-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px; }
+.credit-modal { width:min(92vw,560px); margin:auto; padding:30px; border:1px solid rgba(148,177,143,.3); border-radius:12px; background:#171e18; color:var(--ink); box-shadow:0 24px 80px rgba(0,0,0,.45); }
+.credit-modal::backdrop { background:rgba(5,8,6,.72); backdrop-filter:blur(4px); }
+.credit-modal .standalone-project-form { margin:0; }
+.credit-modal .primary-button { margin-top:8px; }
+.modal-close { width:34px; height:34px; border:1px solid var(--line); border-radius:50%; background:transparent; color:var(--ink); font-size:23px; line-height:1; cursor:pointer; }
+.modal-close:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.modal-user { margin:-4px 0 22px; color:var(--accent); font-size:11px; overflow-wrap:anywhere; }
+.profile-credit-card { display:flex; align-items:baseline; gap:8px; margin:2px 0 22px; padding:18px 20px; border:1px solid rgba(199,243,107,.35); border-radius:10px; background:linear-gradient(135deg,rgba(199,243,107,.14),rgba(148,177,143,.04)); color:var(--accent); font-size:30px; font-weight:700; letter-spacing:-.04em; box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
+.profile-credit-card::after { content:'POINTS'; color:var(--muted); font-size:10px; font-weight:600; letter-spacing:.14em; }
+.modal-actions { display:flex; gap:10px; align-items:center; margin-top:14px; }
+.modal-actions .primary-button { flex:1; margin-top:0; }
+.ledger-modal { width:min(94vw,900px); }
+.ledger-positive { color:var(--accent) !important; font-weight:650; }
+.ledger-negative { color:#e8a08e !important; font-weight:650; }
+.admin-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.admin-check { display:flex; align-items:center; gap:8px; margin:16px 0; color:var(--ink); font-size:12px; }
+.admin-check input { accent-color:var(--accent); }
 @media (prefers-reduced-motion:no-preference) {
   #workbenchView .understanding,
   #workbenchView .results-heading,
