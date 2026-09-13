@@ -624,7 +624,27 @@ def list_feedback_events_for_task(db: OrmSession, *, user_id: str, task_id: str)
     )
 
 
-def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
+def list_feedback_events_for_project(
+    db: OrmSession, *, user_id: str, project_id: str, limit: int = 12
+) -> list[FeedbackEvent]:
+    """Return the most recent project feedback in chronological order."""
+    bounded_limit = max(1, min(limit, 100))
+    recent = list(
+        db.scalars(
+            select(FeedbackEvent)
+            .join(Session, FeedbackEvent.session_id == Session.id)
+            .where(
+                FeedbackEvent.user_id == user_id,
+                Session.project_id == project_id,
+            )
+            .order_by(desc(FeedbackEvent.created_at), desc(FeedbackEvent.id))
+            .limit(bounded_limit)
+        )
+    )
+    return list(reversed(recent))
+
+
+def product_metrics_for_user(db: OrmSession, *, user_id: str, project_id: str | None = None) -> dict:
     """Aggregate currently persisted product facts for one user.
 
     ``sample_count`` includes every run. Completion is terminal-only
@@ -632,9 +652,13 @@ def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
     separately from active in-progress runs. Latency is completed-only and
     uses inclusive percentile interpolation.
     """
-    owned_sessions = (
-        select(Session.id).join(Project, Session.project_id == Project.id).where(Project.user_id == user_id)
-    )
+    owned_projects = select(Project.id).where(Project.user_id == user_id)
+    if project_id is not None:
+        project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+        if project is None:
+            raise ProjectNotFoundError("project not found")
+        owned_projects = owned_projects.where(Project.id == project_id)
+    owned_sessions = select(Session.id).where(Session.project_id.in_(owned_projects))
     session_ids = set(db.scalars(owned_sessions))
     runs = (
         list(db.scalars(select(GenerationRun).where(GenerationRun.session_id.in_(session_ids)))) if session_ids else []
@@ -716,6 +740,7 @@ def product_metrics_for_user(db: OrmSession, *, user_id: str) -> dict:
             "total": sum(cost_values),
         },
         "unavailable_metrics": ["throughput", "concurrency", "retry_count", "time_to_accept"],
+        **({"scope": "project", "project_id": project_id} if project_id is not None else {}),
     }
 
 

@@ -246,12 +246,17 @@ def product_metadata() -> ProductMetadata:
     return ProductMetadata()
 
 
-@app.get("/api/v1/metrics", response_model=ProductMetricsResponse)
+@app.get("/api/v1/metrics", response_model=ProductMetricsResponse, response_model_exclude_none=True)
 def product_metrics(
+    project_id: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> ProductMetricsResponse:
-    return ProductMetricsResponse(**services.product_metrics_for_user(db, user_id=current_user.id))
+    try:
+        metrics = services.product_metrics_for_user(db, user_id=current_user.id, project_id=project_id)
+    except services.ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ProductMetricsResponse(**metrics)
 
 
 @app.post("/api/v1/auth/dev-token", response_model=DevTokenResponse)

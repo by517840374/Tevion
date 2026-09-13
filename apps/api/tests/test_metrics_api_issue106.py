@@ -224,3 +224,47 @@ def test_metrics_percentiles_use_completed_runs_and_inclusive_algorithm(db_overr
     assert latency["p50"] == 20.0
     assert latency["p95"] == 29.0
     assert latency["p99"] == 29.8
+
+
+def test_metrics_can_be_scoped_to_owned_project_and_rejects_unknown_project(db_override: None) -> None:
+    engine = create_engine(TEST_DB_URL)
+    with OrmSession(engine) as db:
+        user = m.User(auth_provider="oidc", provider_subject="issue-project-metrics-owner")
+        project = m.Project(user=user, name="Included")
+        other_project = m.Project(user=user, name="Excluded")
+        included_session = m.Session(project=project, mode="explore")
+        excluded_session = m.Session(project=other_project, mode="explore")
+        db.add_all(
+            [
+                user,
+                project,
+                other_project,
+                included_session,
+                excluded_session,
+                m.GenerationRun(session=included_session, user_id=user.id, status="completed", latency_ms=100),
+                m.GenerationRun(session=excluded_session, user_id=user.id, status="failed", latency_ms=200),
+            ]
+        )
+        db.flush()
+        project_id = project.id
+        db.commit()
+    engine.dispose()
+
+    response = client.get(
+        f"/api/v1/metrics?project_id={project_id}",
+        headers=_auth("issue-project-metrics-owner"),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scope"] == "project"
+    assert payload["project_id"] == project_id
+    assert payload["sample_count"] == 1
+    assert payload["completed_count"] == 1
+    assert payload["failed_count"] == 0
+
+    missing = client.get("/api/v1/metrics?project_id=project-does-not-exist", headers=_auth("issue-project-metrics-owner"))
+    assert missing.status_code == 404
+
+    forbidden = client.get(f"/api/v1/metrics?project_id={project_id}", headers=_auth("issue-project-metrics-other"))
+    assert forbidden.status_code == 404
