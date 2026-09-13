@@ -824,7 +824,13 @@ def project_preferences_for_task(
         )
 
     projected = PreferenceProjector().project(evidence)
-    return [item for item in projected if item.scope == scope and item.status == "active"]
+    evidence_order = {item.evidence_id: index for index, item in enumerate(evidence) if item.evidence_id}
+    active = [item for item in projected if item.scope == scope and item.status == "active"]
+    return sorted(
+        active,
+        key=lambda item: max((evidence_order.get(evidence_id, -1) for evidence_id in item.evidence_ids), default=-1),
+        reverse=True,
+    )
 
 
 def _latest_preference(db: OrmSession, user_id: str, preference_id: str) -> PreferenceEvent | None:
