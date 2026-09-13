@@ -49,7 +49,14 @@
           if (!response.ok) throw new Error('app.js HTTP ' + response.status);
           return response.text();
         });
+        const pageSource = await fetch('index.html?verification=' + Date.now()).then(response => {
+          if (!response.ok) throw new Error('index.html HTTP ' + response.status);
+          return response.text();
+        });
+        const page = new DOMParser().parseFromString(pageSource, 'text/html');
         const has = pattern => pattern.test(source);
+        record('验证基于真实 index.html，而非隐藏测试 DOM',
+          Boolean(page.getElementById('projectPicker')) && Boolean(page.getElementById('authForm')));
         record('token helpers 使用 sessionStorage',
           has(/function getToken\(\)\s*\{[^}]*sessionStorage\.getItem\(TOKEN_KEY\)/s) &&
           has(/function setToken\(t\)\s*\{[^}]*sessionStorage\.setItem\(TOKEN_KEY,\s*t\)/s) &&
@@ -109,10 +116,12 @@
         });
         record('真实返回图片替换等待占位', document.querySelectorAll('[data-generation-placeholder="true"]').length === 0 &&
           document.querySelector('#results .candidate img')?.getAttribute('src') === returnedImageUrl);
+        const pollBody = source.match(/async function pollTaskUntilComplete\([\s\S]*?\n}\n\nasync function trackAsyncGeneration/)?.[0] || '';
         record('生成任务仅在 generating/unknown 时有界轮询详情',
           has(/GENERATION_POLL_INTERVAL_MS/) && has(/GENERATION_POLL_TIMEOUT_MS/) &&
-          has(/function pollTaskUntilComplete\(\)/) && has(/仅回查任务详情/) &&
-          has(/不会重复提交生成/));
+          has(/async function pollTaskUntilComplete\(/) &&
+          pollBody.includes("['generating', 'unknown']") &&
+          pollBody.includes("api('/tasks/'") && !pollBody.includes("api('/tasks',"));
         record('查询超时或断开提供继续查询/恢复任务操作',
           has(/function renderRecoverableTask\(/) && has(/继续查询\/恢复任务/) &&
           has(/function resumeTaskQuery\(\)/) && has(/recoveryRequired/) &&
@@ -154,11 +163,14 @@
         record('候选图片具备 lightbox 触发与键盘可访问性',
           has(/function openLightbox\(/) && has(/data-lightbox/) && has(/type="button"/) &&
           has(/aria-label=.*大图预览/) && has(/\.focus\(\)/));
+        record('关闭大图预览可通过 hidden 正常隐藏',
+          has(/overlay\.hidden = false/) && has(/overlay\.hidden = true/) &&
+          !has(/overlay\.style\.cssText/));
         record('项目历史 select 使用 Tevion 视觉统一类',
           document.getElementById('historyProject')?.classList.contains('history-select') &&
           document.getElementById('historySession')?.classList.contains('history-select'));
         record('项目管理具备新建、列表、切换与 session 持久化契约',
-          ['projectPicker','projectSelect','projectForm','projectName','projectDescription','createProject'].every(id => Boolean(document.getElementById(id))) &&
+          ['projectPicker','projectSelect','projectForm','projectName','projectDescription','createProject'].every(id => Boolean(page.getElementById(id))) &&
           has(/function loadProjects\(\)/) && has(/function createProject\(/) && has(/sessionStorage\.setItem\(PROJECT_KEY/));
         record('创建任务携带当前 project_id', has(/project_id: getProjectId\(\) \|\| null/) && has(/function getProjectId\(\)/));
         record('结果展示 requested actual 数量与短缺解释',
@@ -168,13 +180,16 @@
           has(/function routeTo\(/) && has(/landing/) && has(/login/) && has(/register/) && has(/workbench/) &&
           has(/location\.hash/));
         record('注册登录表单使用真实 auth contract 且成功保存 token',
-          has(/\/auth\/register/) && has(/\/auth\/login/) && has(/access_token/) &&
+          has(/api\(['"]\/auth\/['"] \+ authMode/) && has(/authMode = route/) && has(/access_token/) &&
           has(/password/) && has(/setToken\(/) && has(/sessionStorage/) &&
           !has(/localStorage\.(getItem|setItem|removeItem).*TOKEN_KEY/s));
         record('认证错误提供重复账号与通用登录提示',
           has(/账号已存在/) && has(/登录失败，请检查邮箱和密码/));
         record('认证输入校验与键盘可访问性',
-          has(/required/) && has(/type="email"/) && has(/minLength/) && has(/aria-live/) && has(/aria-label/));
+          page.querySelector('#authEmail[type="email"][required]') &&
+          page.querySelector('#authPassword[type="password"][required][minlength="8"]') &&
+          page.querySelector('#authMessage[aria-live]') &&
+          page.querySelector('label[for="authEmail"]') && page.querySelector('label[for="authPassword"]'));
         record('认证入口不持久化 password、hash 或 Authorization',
           !has(/sessionStorage\.setItem\([^)]*password/i) && !has(/password_hash/i) &&
           !has(/sessionStorage\.setItem\([^)]*Authorization/i));

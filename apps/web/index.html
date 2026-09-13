@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tevion — Visual Agent Workbench</title>
+  <title>Tevion - Visual Agent Workbench</title>
   <link rel="stylesheet" href="styles.css?v=20260912">
-  <link rel="stylesheet" href="interactive.css?v=20260912">
+  <link rel="stylesheet" href="interactive.css?v=20260912-taste2">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">T</span><span>TEVION</span></div>
-    <div class="topbar-meta"><span class="status-dot"></span> 视觉探索工作台 <span class="separator">/</span> 实时后端联调模式</div>
+    <div class="topbar-meta"><span class="status-dot"></span> 视觉探索工作台 <span class="separator">/</span> 实时后端联调模式 <span class="credit-balance" id="creditBalance" hidden>余额 -- 点</span></div>
     <div class="topbar-actions">
       <div class="auth-area" id="authArea">
         <button class="ghost-button" id="loginBtn">演示登录</button>
@@ -18,6 +18,7 @@
       </div>
       <button class="ghost-button" id="refreshPageBtn" type="button">刷新页面</button>
       <button class="ghost-button" id="projectsBtn">项目管理</button>
+      <button class="ghost-button" id="adminBtn" hidden>后台管理</button>
       <button class="ghost-button" id="providerSettingsBtn">图片接口设置</button>
       <button class="ghost-button" id="profileBtn">查看我的审美画像</button>
     </div>
@@ -26,9 +27,9 @@
   <main id="landingView" class="entry-view" hidden>
     <div class="entry-shell">
       <div class="entry-kicker">TEVION / VISUAL AGENT</div>
-      <h1>把感觉说出来，<em>让 Agent 帮你找到。</em></h1>
-      <p class="entry-lede">从模糊灵感到可比较的视觉方向。Tevion 将你的意图拆解为主体、光影、镜头与色彩，陪你逐步收敛出真正想要的画面。</p>
-      <div class="entry-actions"><a class="primary-button" href="#login">进入工作台 <span aria-hidden="true">→</span></a><a class="secondary-button" href="#register">创建账号</a></div>
+      <h1>把感觉说出来，<em>找到真正想要的画面。</em></h1>
+      <p class="entry-lede">从一句模糊灵感开始，Tevion 帮你探索、比较，再逐步收敛出自己的视觉方向。</p>
+      <div class="entry-actions"><a class="primary-button" href="#login">开始一次探索 <span aria-hidden="true">→</span></a><a class="secondary-button" href="#register">创建账号</a></div>
       <div class="entry-proof"><span><strong>01</strong> 描述感觉</span><span><strong>02</strong> 比较方向</span><span><strong>03</strong> 共同精修</span></div>
     </div>
   </main>
@@ -99,16 +100,40 @@
     </section>
   </main>
 
+  <main id="adminView" class="management-view" hidden>
+    <section class="management-shell narrow">
+      <button class="back-link" id="backFromAdminBtn" type="button">← 返回项目管理</button>
+      <div class="eyebrow">ADMIN CONSOLE</div><h1>后台管理</h1>
+      <p class="muted">点数账户的人工调整会写入不可变账本，并保留操作原因。</p>
+      <div id="adminStatus" class="management-status" role="status" aria-live="polite">正在检查管理员权限…</div>
+      <form id="adminCreditForm" class="standalone-project-form" hidden>
+        <label class="field-label" for="adminUserId">用户 ID</label>
+        <input id="adminUserId" type="text" maxlength="64" required placeholder="user_xxx">
+        <label class="field-label" for="adminPoints">调整点数</label>
+        <input id="adminPoints" type="number" min="-1000000" max="1000000" required placeholder="例如 100">
+        <label class="field-label" for="adminReason">调整原因</label>
+        <input id="adminReason" type="text" maxlength="255" required placeholder="例如：测试账户充值">
+        <p id="adminCreditMessage" class="field-hint" role="status" aria-live="polite"></p>
+        <button class="primary-button" type="submit">提交账本调整</button>
+      </form>
+    </section>
+  </main>
+
   <main id="workbenchView" class="workspace" hidden>
     <aside class="sidebar panel">
-      <div class="eyebrow">NEW SESSION</div>
-      <h1>把感觉说出来，<br><em>让 Agent 帮你找到。</em></h1>
+      <div class="eyebrow">START WITH A FEELING</div>
+      <h1>先说感觉，<br><em>再一起收敛。</em></h1>
       <label class="field-label" for="request">你想创作什么？</label>
       <textarea id="request" rows="5">我想要一组适合做社交头像的年轻男性肖像：气质干净、有电影感，看起来明确成年但保有少年感。</textarea>
-      <div class="field-label row-label"><span>视觉方向</span><span class="muted">可多选</span></div>
-      <div class="chips" id="chips">
-        <button class="chip active">清爽自然</button><button class="chip active">成年青春感</button><button class="chip">冷感电影</button><button class="chip">温柔文艺</button><button class="chip">运动阳光</button>
-      </div>
+      <details class="style-picker" id="stylePicker">
+        <summary><span class="field-label">视觉方向</span><span class="style-summary" id="styleSummary">清爽自然、成年青春感</span><span class="style-toggle" aria-hidden="true">展开</span></summary>
+        <div class="style-picker-body">
+          <p class="field-hint">可多选，帮助 Agent 更准确地理解这一轮感觉。</p>
+          <div class="chips" id="chips">
+            <button type="button" class="chip active">清爽自然</button><button type="button" class="chip active">成年青春感</button><button type="button" class="chip">冷感电影</button><button type="button" class="chip">温柔文艺</button><button type="button" class="chip">运动阳光</button>
+          </div>
+        </div>
+      </details>
       <div class="field-label row-label"><span>生成模式</span></div>
       <div class="mode-switch">
         <button class="mode active" data-mode="explore">探索</button>
@@ -132,12 +157,14 @@
         <div class="refine-context-title">精修基于当前 selected parent</div>
         <p id="refineParentStatus">尚未选择候选图。</p>
         <div class="refine-scope"><span><strong>保留</strong> 已选择候选的主体、光影与整体感觉</span><span><strong>修改</strong> 你在左侧输入的内容与视觉方向</span></div>
+        <p class="field-hint refine-upload-note" id="refineContextNote">当前仅支持选择本次生成或项目历史中的候选图；上传本地图片的后端接口尚未提供。</p>
       </div>
       <div class="form-grid">
         <div><label class="field-label">比例</label><select id="ratio" aria-describedby="ratioHint"><option value="4:5">4:5 人像 · 1024×1280</option><option value="1:1">1:1 方形 · 1024×1024</option><option value="9:16">9:16 竖屏 · 1024×1792</option><option value="3:4">3:4 人像 · 768×1024</option><option value="2:3">2:3 人像 · 683×1024</option><option value="3:2">3:2 横图 · 1024×683</option><option value="16:9">16:9 横屏 · 1024×576</option><option value="21:9">21:9 超宽 · 1024×439</option><option value="5:4">5:4 横图 · 1024×819</option><option value="4:3">4:3 横图 · 1024×768</option><option value="2:1">2:1 横幅 · 1024×512</option><option value="1:2">1:2 竖幅 · 512×1024</option><option value="1:3">1:3 长竖幅 · 341×1024</option></select><p class="field-hint" id="ratioHint">尺寸会随比例传给生成任务，便于预览构图。</p></div>
         <div><label class="field-label" for="count">候选数量</label><select id="count" aria-describedby="countHint"><option value="4">4 张</option><option value="2">2 张</option><option value="1">1 张</option></select><p class="field-hint" id="countHint">探索模式可比较多张候选；切换到精修会默认 1 张。</p></div>
       </div>
       <button class="primary-button" id="generate" aria-describedby="loginHint">生成视觉方案 <span aria-hidden="true">→</span></button>
+      <p class="credit-estimate" id="creditEstimate">本次预计消耗 10 点，生成失败会自动释放。</p>
       <p class="privacy-note" id="loginHint">未登录：生成前请先完成「演示登录」。</p>
     </aside>
 
@@ -147,8 +174,9 @@
         <span class="live-pill" id="agentState" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span> 已准备</span>
       </div>
       <div class="understanding panel">
-        <div class="interpretation"><span class="quote-mark">“</span><p id="interpretText">我会先解析你的文字与视觉标签，把感觉拆成可以比较的方向——主体、光影、镜头与色彩，再生成一组差异化的候选。真实理解 Agent 后续接入，当前为完整生成流程。</p></div>
+        <div class="interpretation"><span class="quote-mark">“</span><p id="interpretText">我会先解析你的文字与视觉标签，把感觉拆成可以比较的方向：主体、光影、镜头与色彩，再生成一组差异化的候选。真实理解 Agent 后续接入，当前为完整生成流程。</p></div>
         <div class="request-echo" id="requestEcho" hidden></div>
+        <div class="adopted-memory" id="adoptedMemory" hidden aria-live="polite"></div>
         <div class="checkpoint"><span class="checkpoint-icon">✓</span><span id="checkpointText">填写左侧需求后点击「生成视觉方案」，Agent 会创建任务并真实生成候选图片。</span></div>
       </div>
       <div class="section-heading results-heading">
@@ -164,34 +192,42 @@
     </section>
 
     <aside class="right-column panel">
-      <div class="eyebrow">VISUAL MEMORY</div>
-      <h2>Agent 对你的理解</h2>
-      <p class="muted intro">基于本项目最近 12 次选择</p>
+      <div class="context-heading">
+        <div><div class="eyebrow">PROJECT CONTEXT</div><h2>项目上下文</h2></div>
+        <span class="context-hint">按需展开</span>
+      </div>
+      <section class="context-primary" id="contextPrimary">
+        <div class="eyebrow">VISUAL MEMORY</div>
+        <h3>Agent 对你的理解</h3>
+        <p class="muted intro">基于本项目最近 12 次反馈</p>
       <div id="memoryStatus" class="memory-status" role="status" aria-live="polite">生成任务后加载你的可解释视觉记忆。</div>
       <div id="memoryList" class="memory-list" aria-live="polite"><p class="muted">暂无可见记忆。</p></div>
       <div class="memory-footer"><span class="memory-pulse"></span><p>每条记忆都保留来源与证据，可编辑、停用或删除。<br><button class="text-button" id="memoryBtn">刷新记忆 →</button></p></div>
-      <div class="history-panel" id="historyPanel" aria-live="polite">
-        <div class="eyebrow">PROJECT HISTORY</div>
-        <h2>项目历史</h2>
+      </section>
+      <details class="context-section" id="historyPanel">
+        <summary><span><strong>项目历史</strong></span><span class="context-toggle">展开</span></summary>
+        <div class="context-section-body" aria-live="polite">
         <p class="muted intro" id="historyStatus">登录后加载项目、会话与版本。</p>
         <label class="field-label" for="historyProject">当前项目</label>
         <select id="historyProject" class="history-select" disabled><option>暂无项目</option></select>
         <label class="field-label history-session-label" for="historySession">当前会话</label>
         <select id="historySession" class="history-select" disabled><option>暂无会话</option></select>
         <div id="historyVersions" class="history-list"><p class="muted">选择项目和会话后查看历史版本。</p></div>
-      </div>
-      <div class="task-center" id="taskCenter" aria-live="polite" aria-busy="false">
-        <div class="eyebrow">TASK CENTER</div>
-        <div class="task-center-heading"><div><h2>任务中心</h2><p class="muted intro" id="taskCenterStatus">选择项目后加载任务历史。</p></div><button class="text-button" id="taskCenterRetry" type="button" hidden>重新加载 →</button></div>
+        </div>
+      </details>
+      <details class="context-section" id="taskCenter">
+        <summary><span><strong>任务中心</strong></span><span class="context-toggle">展开</span></summary>
+        <div class="context-section-body" aria-live="polite" aria-busy="false">
+        <div class="task-center-heading"><div><p class="muted intro" id="taskCenterStatus">选择项目后加载任务历史。</p></div><button class="text-button" id="taskCenterRetry" type="button" hidden>重新加载 →</button></div>
         <div id="taskList" class="task-list"><p class="muted">暂无任务。</p></div>
         <div id="taskPagination" class="task-pagination" hidden aria-label="任务历史分页"></div>
-      </div>
-      <div class="metrics-panel" id="metricsSummary" aria-live="polite" aria-busy="false">
-        <div class="eyebrow">PRODUCT METRICS</div>
-        <h2>产品指标摘要</h2>
+        </div>
+      </details>
+      <section class="metrics-panel context-section" id="metricsSummary" aria-live="polite" aria-busy="false">
+        <div class="context-section-heading"><h3>产品指标摘要</h3></div>
         <p class="muted intro" id="metricsStatus">登录后加载当前账号指标。</p>
         <div class="metrics-grid" id="metricsGrid"></div>
-      </div>
+      </section>
     </aside>
 </main>
 
@@ -199,6 +235,6 @@
   <script>
     window.TEVION_OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
   </script>
-  <script src="app.js?v=20260912-history4"></script>
+  <script src="app.js?v=20260913-style-collapse"></script>
 </body>
 </html>

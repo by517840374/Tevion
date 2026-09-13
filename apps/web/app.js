@@ -1,4 +1,4 @@
-/* Tevion 前端工作台 — 连接真实后端 API
+/* Tevion 前端工作台 - 连接真实后端 API
  * 后端地址如有变化，只需修改 API_BASE。
  */
 const API_BASE = window.TEVION_API_BASE || 'http://127.0.0.1:8010/api/v1';
@@ -18,6 +18,7 @@ let elapsedTimer = null;
 let genStartedAt = 0;
 let historyProjects = [];
 let historySessions = [];
+let memoryExpanded = false;
 let selectedProjectId = sessionStorage.getItem(PROJECT_KEY) || '';
 let uploadedParentVersionId = null;
 let uploadedReferenceImages = [];
@@ -25,6 +26,7 @@ let referenceUploadInFlight = false;
 let projectTasks = [];
 let generationRounds = [];
 let taskPage = 1;
+let taskExpanded = false;
 const TASK_PAGE_SIZE = 6;
 const GENERATION_POLL_INTERVAL_MS = 3000;
 const GENERATION_POLL_TIMEOUT_MS = 300000;
@@ -103,10 +105,10 @@ function setProjectId(id) { selectedProjectId = id || ''; if (selectedProjectId)
 let authMode = 'login';
 function routeName() {
   const value = window.location.hash.replace(/^#/, '').toLowerCase();
-  return ['login', 'register', 'projects', 'new-project', 'provider-settings', 'workbench'].includes(value) ? value : (getToken() ? 'projects' : 'landing');
+  return ['login', 'register', 'projects', 'new-project', 'provider-settings', 'workbench', 'admin'].includes(value) ? value : (getToken() ? 'projects' : 'landing');
 }
 function routeTo(name) {
-  const route = ['landing', 'login', 'register', 'projects', 'new-project', 'provider-settings', 'workbench'].includes(name) ? name : 'landing';
+  const route = ['landing', 'login', 'register', 'projects', 'new-project', 'provider-settings', 'workbench', 'admin'].includes(name) ? name : 'landing';
   if (window.location.hash !== '#' + route) window.location.hash = route === 'landing' ? '' : route;
   renderRoute(route);
 }
@@ -116,16 +118,19 @@ function reloadPage() {
   window.location.replace(url.href);
 }
 function renderRoute(route = routeName()) {
+  document.body.dataset.route = route;
   $('landingView').hidden = route !== 'landing';
   $('authView').hidden = !['login', 'register'].includes(route);
   $('projectsView').hidden = route !== 'projects';
   $('newProjectView').hidden = route !== 'new-project';
   $('providerSettingsView').hidden = route !== 'provider-settings';
   $('workbenchView').hidden = route !== 'workbench';
+  $('adminView').hidden = route !== 'admin';
   document.querySelector('.topbar-meta').textContent = route === 'workbench' ? '项目执行 / 实时后端联调模式' : ['projects', 'new-project'].includes(route) ? '项目管理 / 独立工作空间' : '从意图到视觉方向';
-  if (['projects', 'new-project', 'provider-settings', 'workbench'].includes(route) && !getToken()) return routeTo('login');
+  if (['projects', 'new-project', 'provider-settings', 'workbench', 'admin'].includes(route) && !getToken()) return routeTo('login');
+  if (route === 'admin') loadAdminPage();
   if (['login', 'register'].includes(route)) setupAuthForm(route);
-  document.title = route === 'landing' ? 'Tevion — 从感觉到画面' : route === 'register' ? '注册 Tevion' : route === 'login' ? '登录 Tevion' : route === 'projects' ? 'Tevion — 项目管理' : route === 'new-project' ? 'Tevion — 新建项目' : route === 'provider-settings' ? 'Tevion — 图片接口设置' : 'Tevion — 项目执行';
+  document.title = route === 'landing' ? 'Tevion - 从感觉到画面' : route === 'register' ? '注册 Tevion' : route === 'login' ? '登录 Tevion' : route === 'projects' ? 'Tevion - 项目管理' : route === 'new-project' ? 'Tevion - 新建项目' : route === 'provider-settings' ? 'Tevion - 图片接口设置' : route === 'admin' ? 'Tevion - 后台管理' : 'Tevion - 项目执行';
 }
 function setupAuthForm(route) {
   authMode = route;
@@ -225,6 +230,7 @@ async function loadProjects() {
       $('historyProject').value = getProjectId();
       await loadHistorySessions(getProjectId());
       await loadProjectTasks(getProjectId());
+      await loadMetrics();
     }
   } catch (err) {
     renderProjectOptions([]);
@@ -262,12 +268,14 @@ function renderTaskList(items) {
   }
   const pageCount = Math.max(1, Math.ceil(items.length / TASK_PAGE_SIZE));
   taskPage = Math.min(Math.max(taskPage, 1), pageCount);
-  const visibleItems = items.slice((taskPage - 1) * TASK_PAGE_SIZE, taskPage * TASK_PAGE_SIZE);
+  const visibleItems = taskExpanded
+    ? items.slice((taskPage - 1) * TASK_PAGE_SIZE, taskPage * TASK_PAGE_SIZE)
+    : items.slice(0, 1);
   target.innerHTML = visibleItems.map(item => {
     const status = String(item.status || 'unknown').toLowerCase();
     const images = Array.isArray(item.images) ? item.images : [];
     const count = item.actual_output_count ?? images.length;
-    const requested = item.requested_output_count ?? '—';
+    const requested = item.requested_output_count ?? '-';
     const data = taskDataset(item);
     let actions = '';
     if (['created', 'generating', 'unknown'].includes(status)) actions += '<button type="button" class="small-button" data-task-continue="' + data + '">继续查询</button>';
@@ -276,8 +284,10 @@ function renderTaskList(items) {
     return '<article class="task-card task-status-' + escapeHtml(status) + '" data-task-id="' + escapeHtml(item.task_id || '') + '"><div class="task-card-heading"><div><span class="task-status-badge">' + escapeHtml(taskStatusLabel(status)) + '</span><h3>' + escapeHtml(String(item.request || '未提供请求')) + '</h3></div><time>' + escapeHtml(taskDate(item.created_at)) + '</time></div><div class="task-card-meta"><span>' + escapeHtml(item.mode === 'refine' ? 'Refine' : 'Explore') + '</span><span>结果 ' + escapeHtml(String(count)) + ' / ' + escapeHtml(String(requested)) + '</span><span>run_id: ' + escapeHtml(item.run_id || '未提供') + '</span></div>' + (taskImageMarkup(item) ? '<div class="task-card-images">' + taskImageMarkup(item) + '</div>' : '') + (item.error_code ? '<p class="task-error">' + escapeHtml(String(item.error_code)) + '</p>' : '') + ((item.parent_run_id || item.parent_image_id) ? '<p class="task-lineage">parent：' + escapeHtml(item.parent_run_id || item.parent_image_id) + '</p>' : '') + (actions ? '<div class="task-actions">' + actions + '</div>' : '') + '</article>';
   }).join('');
   if (pagination) {
-    pagination.hidden = pageCount <= 1;
-    pagination.innerHTML = '<button type="button" class="small-button" data-task-page="prev"' + (taskPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + taskPage + ' / ' + pageCount + ' 页 · 共 ' + items.length + ' 条</span><button type="button" class="small-button" data-task-page="next"' + (taskPage >= pageCount ? ' disabled' : '') + '>下一页</button>';
+    pagination.hidden = items.length <= 1;
+    pagination.innerHTML = taskExpanded
+      ? '<button type="button" class="text-button task-more-button" data-task-more="collapse">收起任务</button><span>第 ' + taskPage + ' / ' + pageCount + ' 页 · 共 ' + items.length + ' 条</span><button type="button" class="small-button" data-task-page="prev"' + (taskPage <= 1 ? ' disabled' : '') + '>上一页</button><button type="button" class="small-button" data-task-page="next"' + (taskPage >= pageCount ? ' disabled' : '') + '>下一页</button>'
+      : '<button type="button" class="text-button task-more-button" data-task-more="expand">查看更多任务（共 ' + items.length + ' 条） →</button>';
   }
   bindLightboxLinks(target);
 }
@@ -295,6 +305,7 @@ async function loadProjectTasks(projectId = getProjectId()) {
   try {
     projectTasks = listPayload(await api('/projects/' + encodeURIComponent(projectId) + '/tasks'));
     taskPage = 1;
+    taskExpanded = false;
     renderTaskList(projectTasks);
     renderTaskCenterMessage(projectTasks.length ? '已加载 ' + projectTasks.length + ' 个任务。' : '当前项目暂无任务。');
   } catch (err) {
@@ -313,7 +324,7 @@ function viewTaskFromCenter(task, refine = false) {
 }
 function handleProjectChange(projectId) {
   setProjectId(projectId); if ($('historyProject')) $('historyProject').value = projectId;
-  loadHistorySessions(projectId); loadProjectTasks(projectId);
+  loadHistorySessions(projectId); loadProjectTasks(projectId); loadMetrics();
 }
 
 async function createProject(event) {
@@ -328,6 +339,7 @@ async function createProject(event) {
     await loadProjects();
     setProjectId(project.id); $('projectSelect').value = project.id; $('historyProject').value = project.id;
     message.textContent = '项目已创建并设为当前项目。'; toast('项目创建成功。', 'success');
+    routeTo('workbench');
   } catch (err) { message.textContent = '创建失败：' + err.message; }
   finally { button.disabled = false; }
 }
@@ -438,7 +450,12 @@ async function loadHistorySessions(projectId) {
     historySessions = listPayload(data);
     renderHistoryOptions(sessionSelect, historySessions, '暂无会话');
     renderHistoryMessage(historySessions.length ? '已加载项目会话，请选择查看版本。' : '当前项目暂无会话。');
-    if (historySessions.length) await loadHistoryVersions(historySessions[0].id);
+    if (historySessions.length) {
+      await loadHistoryVersions(historySessions[0].id);
+      await refreshVisualMemory(historySessions[0].id);
+    } else {
+      await refreshVisualMemory(null);
+    }
   } catch (err) {
     historySessions = [];
     renderHistoryOptions(sessionSelect, [], '暂无会话');
@@ -474,6 +491,46 @@ async function loadProjectHistory() {
 function formatMetricPercent(value) { return (Number(value || 0) * 100).toFixed(1) + '%'; }
 function formatMetricNumber(value) { return Number(value || 0).toFixed(1); }
 
+function updateCreditEstimate() {
+  const target = $('creditEstimate');
+  if (!target) return;
+  const count = Number($('count')?.value || 1);
+  const refine = document.querySelector('.mode.active')?.dataset.mode === 'refine';
+  target.textContent = '本次预计消耗 ' + (count * (refine ? 15 : 10)) + ' 点，生成失败会自动释放。';
+}
+
+async function loadCredits() {
+  const target = $('creditBalance');
+  if (!target || !getToken()) { if (target) target.hidden = true; return; }
+  try {
+    const data = await api('/credits');
+    target.textContent = '余额 ' + Number(data?.balance_points || 0) + ' 点';
+    target.hidden = false;
+  } catch (_) { target.hidden = true; }
+}
+
+async function loadAdminAccess() {
+  const button = $('adminBtn');
+  if (!button || !getToken()) { if (button) button.hidden = true; return false; }
+  try {
+    const data = await api('/admin/access');
+    button.hidden = !data?.allowed;
+    return !!data?.allowed;
+  } catch (_) { button.hidden = true; return false; }
+}
+
+async function loadAdminPage() {
+  const status = $('adminStatus'), form = $('adminCreditForm');
+  if (!status || !form) return;
+  status.textContent = '正在检查管理员权限…'; form.hidden = true;
+  try {
+    const allowed = await loadAdminAccess();
+    if (!allowed) { status.textContent = '当前账号没有管理员权限。'; return; }
+    status.textContent = '权限已确认。所有调整都会写入点数账本。';
+    form.hidden = false;
+  } catch (_) { status.textContent = '权限检查失败，请稍后重试。'; }
+}
+
 function renderMetrics(data) {
   const summary = $('metricsSummary'), status = $('metricsStatus'), grid = $('metricsGrid');
   if (!summary || !status || !grid) return;
@@ -482,7 +539,8 @@ function renderMetrics(data) {
   const cost = data.cost || { count: 0, average: 0, total: 0 };
   const hasData = Number(latency.count || 0) > 0 || Number(cost.count || 0) > 0 || Number(data.average_generation_rounds || 0) > 0 ||
     [data.generation_completion_rate, data.candidate_selection_rate, data.feedback_completion_rate, data.explore_to_refine_rate].some(value => Number(value || 0) > 0);
-  status.textContent = hasData ? '当前账号的真实使用摘要。' : '暂无可用产品指标，完成一次生成后这里会显示摘要。';
+  const scopeLabel = data.scope === 'project' ? '当前项目的真实使用摘要。' : '当前账号的真实使用摘要。';
+  status.textContent = hasData ? scopeLabel : (data.scope === 'project' ? '当前项目暂无可用产品指标，完成一次生成后这里会显示摘要。' : '暂无可用产品指标，完成一次生成后这里会显示摘要。');
   grid.innerHTML = [
     ['生成完成率', formatMetricPercent(data.generation_completion_rate)], ['候选选择率', formatMetricPercent(data.candidate_selection_rate)],
     ['反馈完成率', formatMetricPercent(data.feedback_completion_rate)], ['Explore → Refine', formatMetricPercent(data.explore_to_refine_rate)],
@@ -503,7 +561,9 @@ async function loadMetrics() {
   if (!getToken()) return renderMetricsMessage('登录后加载当前账号指标。');
   const summary = $('metricsSummary'); summary.setAttribute('aria-busy', 'true');
   $('metricsStatus').textContent = '正在加载产品指标…'; $('metricsStatus').className = 'muted intro';
-  try { renderMetrics((await api('/metrics')) || {}); }
+  const projectId = getProjectId();
+  const endpoint = projectId ? '/metrics?project_id=' + encodeURIComponent(projectId) : '/metrics';
+  try { renderMetrics((await api(endpoint)) || {}); }
   catch (err) { renderMetricsMessage(err.status === 401 ? '登录已失效，请重新「演示登录」后重试。' : '产品指标读取失败：' + err.message + ' 可重新登录后重试。', true); }
 }
 
@@ -606,6 +666,8 @@ function refreshLoginUI() {
   const results = $('results');
   if (cta) cta.hidden = has || results.classList.contains('results') || results.querySelector('.error-box');
   loadMetrics();
+  loadCredits();
+  loadAdminAccess();
   if (has) loadProjects();
 }
 
@@ -672,7 +734,7 @@ function escapeHtml(s) {
 function renderRefineContext() {
   const context = $('refineContext');
   const status = $('refineParentStatus');
-  const uploadNote = $('refineUploadNote');
+  const uploadNote = $('refineContextNote');
   if (!context || !status) return;
   const refine = document.querySelector('.mode.active')?.dataset.mode === 'refine';
   context.hidden = !refine;
@@ -846,6 +908,8 @@ function resetResults(msg) {
 
 function renderLoading(stepIdx, mainText, subText) {
   const r = $('results');
+  // 每次状态更新只保留一条当前轮次状态，避免“创建任务”和“生成候选”叠成两块。
+  r.querySelectorAll('.compact-loading, .generation-placeholders').forEach(element => element.remove());
   const previousResults = generationRounds.length ? r.innerHTML : '';
   r.className = 'results panel';
   r.setAttribute('aria-live', 'polite');
@@ -912,7 +976,6 @@ function openLightbox(url, alt) {
   download.href = url;
   download.download = (alt || 'tevion-image').replace(/[^\w\u4e00-\u9fff-]+/g, '-').slice(0, 80) + '.png';
   overlay.hidden = false;
-  overlay.style.cssText += ';display:grid!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:auto!important';
   document.body.classList.add('lightbox-open');
   overlay.querySelector('.lightbox-close').focus();
 }
@@ -997,7 +1060,12 @@ function renderResults(images, outputMeta = {}, { append = false, useState = fal
     : '请求 ' + requested + ' 张 · 实际 ' + actual + ' 张 · 少 ' + shortfall + ' 张' + (completeness ? '（' + escapeHtml(String(completeness)) + '）' : '');
   $('resultsMeta').textContent = quantityNote + ' · 已就绪';
 
-  const cards = generationRounds.map((item, index) => candidateRoundMarkup(item.images, index)).join('');
+  // 新轮次优先展示，用户无需滚到结果区底部查找刚生成的内容。
+  const cards = generationRounds
+    .map((item, index) => ({ item, index }))
+    .reverse()
+    .map(({ item, index }) => candidateRoundMarkup(item.images, index))
+    .join('');
 
   r.innerHTML =
     '<div class="result-top">' +
@@ -1119,6 +1187,8 @@ async function trackAsyncGeneration(task) {
       currentTask.run_id = detail.run_id || currentTask.run_id;
       currentTask.output_meta = detail;
       renderResults(detail.images, detail, { append: true });
+      refreshVisualMemory(task.task_id).catch(() => {});
+      loadCredits();
       toast('任务已完成：' + detail.images.length + ' 张候选已就绪。', 'success', 4000);
     } else {
       generationRounds.push({
@@ -1157,6 +1227,8 @@ async function resumeTaskQuery() {
     currentTask.run_id = detail.run_id || currentTask.run_id;
     currentTask.output_meta = detail;
     renderResults(detail.images, detail);
+    refreshVisualMemory(task.task_id).catch(() => {});
+    loadCredits();
     toast('任务已恢复：' + detail.images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
     if (err.network || err.recoveryRequired) renderRecoverableTask(err.message || '暂时无法查询任务状态。');
@@ -1218,24 +1290,56 @@ function setMemoryStatus(text, type = '') {
 
 function preferenceId(item) { return item.id || ''; }
 
+const memoryLabels = {
+  scope: { project: '项目记忆', session: '当前会话', user: '个人偏好' },
+  source: {
+    selection: '候选选择', explicit_feedback: '明确反馈', tagged_feedback: '标签反馈',
+    user_edit: '手动编辑', usage: '使用行为', inference: '系统推断'
+  },
+  key: { image_version_id: '选中的候选图', direction: '视觉方向', rejection_reason: '拒绝原因' },
+  status: { active: '生效中', disabled: '已停用', deleted: '已删除' }
+};
+function memoryLabel(group, value) { return memoryLabels[group]?.[value] || value || '未提供'; }
+
 function renderMemoryItems(items) {
   const target = $('memoryList');
   if (!target) return;
-  if (!items.length) { target.innerHTML = '<p class="muted">暂无可见记忆。</p>'; return; }
-  target.innerHTML = items.map(item => {
+  if (!items.length) {
+    target.innerHTML = '<p class="muted">暂无可见记忆。</p>';
+    const adopted = $('adoptedMemory');
+    if (adopted) { adopted.hidden = true; adopted.innerHTML = ''; }
+    return;
+  }
+  renderAdoptedMemory(items);
+  const visibleItems = memoryExpanded ? items : items.slice(0, 1);
+  target.innerHTML = visibleItems.map(item => {
     const evidence = Array.isArray(item.evidence_ids) ? item.evidence_ids : [];
     const id = preferenceId(item);
     return '<article class="memory-card" data-preference-id="' + escapeHtml(id) + '">' +
-      '<div class="memory-title"><strong>' + escapeHtml(item.key) + '</strong><span class="memory-status-badge ' + escapeHtml(item.status || 'active') + '">' + escapeHtml(item.status || 'active') + '</span></div>' +
+      '<div class="memory-title"><strong>' + escapeHtml(memoryLabel('key', item.key)) + '</strong><span class="memory-status-badge ' + escapeHtml(item.status || 'active') + '">' + escapeHtml(memoryLabel('status', item.status || 'active')) + '</span></div>' +
       '<p class="memory-value">' + escapeHtml(item.value) + '</p>' +
-      '<dl class="memory-evidence"><div><dt>scope</dt><dd>' + escapeHtml(item.scope || '—') + (item.scope_id ? ' · ' + escapeHtml(item.scope_id) : '') + '</dd></div><div><dt>source</dt><dd>' + escapeHtml(item.source || '—') + '</dd></div><div><dt>confidence</dt><dd>' + escapeHtml(String(item.confidence ?? '—')) + '</dd></div><div><dt>evidence_count</dt><dd>' + escapeHtml(String(item.evidence_count ?? evidence.length)) + '</dd></div><div class="evidence-ids"><dt>evidence_ids</dt><dd>' + escapeHtml(evidence.join(', ') || '—') + '</dd></div></dl>' +
+      '<dl class="memory-evidence"><div><dt>记忆范围</dt><dd>' + escapeHtml(memoryLabel('scope', item.scope)) + '</dd></div><div><dt>来源</dt><dd>' + escapeHtml(memoryLabel('source', item.source)) + '</dd></div><div><dt>可信度</dt><dd>' + escapeHtml(String(item.confidence ?? '-')) + '</dd></div><div><dt>证据数量</dt><dd>' + escapeHtml(String(item.evidence_count ?? evidence.length)) + '</dd></div><div class="evidence-ids"><dt>证据记录</dt><dd>' + escapeHtml(evidence.join(', ') || '-') + '</dd></div></dl>' +
       (id && item.status !== 'deleted' ? '<div class="memory-actions"><button type="button" class="memory-edit" data-edit="' + escapeHtml(id) + '">编辑</button><button type="button" class="memory-disable" data-disable="' + escapeHtml(id) + '"' + (item.status === 'disabled' ? ' disabled' : '') + '>停用</button><button type="button" class="memory-delete" data-delete="' + escapeHtml(id) + '">删除</button></div>' : '') +
       '</article>';
   }).join('');
+  if (items.length > 1) {
+    target.insertAdjacentHTML('beforeend', '<button type="button" class="text-button memory-more" data-memory-more>' + (memoryExpanded ? '收起其他记忆 ↑' : '查看更多（' + items.length + ' 条） →') + '</button>');
+  }
 }
 
-async function refreshVisualMemory() {
-  const taskId = currentTask && currentTask.task_id;
+function renderAdoptedMemory(items) {
+  const target = $('adoptedMemory');
+  if (!target) return;
+  const adopted = items.filter(item => item.key !== 'image_version_id').slice(0, 3);
+  if (!adopted.length) { target.hidden = true; target.innerHTML = ''; return; }
+  target.hidden = false;
+  target.innerHTML = '<div class="adopted-memory-heading"><span class="eyebrow">PROJECT MEMORY</span><span>本轮采用的项目记忆</span></div>' +
+    '<div class="adopted-memory-items">' + adopted.map(item => '<span class="adopted-memory-chip"><strong>' + escapeHtml(memoryLabel('key', item.key)) + '</strong><span>' + escapeHtml(item.value) + '</span></span>').join('') + '</div>' +
+    '<button type="button" class="text-button adopted-memory-detail" data-adopted-detail>查看来源与证据 →</button>';
+}
+
+async function refreshVisualMemory(taskId = currentTask && currentTask.task_id) {
+  taskId = taskId || historySessions[0]?.id;
   if (!taskId) { setMemoryStatus('生成任务后加载你的可解释视觉记忆。'); return; }
   const target = $('memoryList');
   setMemoryStatus('正在加载视觉记忆…');
@@ -1269,6 +1373,11 @@ async function mutatePreference(id, action, value) {
 $('memoryList')?.addEventListener('click', event => {
   const button = event.target.closest('button');
   if (!button) return;
+  if (button.dataset.memoryMore !== undefined) {
+    memoryExpanded = !memoryExpanded;
+    refreshVisualMemory();
+    return;
+  }
   const id = button.dataset.edit || button.dataset.disable || button.dataset.delete;
   if (!id) return;
   if (button.dataset.edit) {
@@ -1279,6 +1388,13 @@ $('memoryList')?.addEventListener('click', event => {
     mutatePreference(id, 'disable');
   } else if (button.dataset.delete && window.confirm('确认删除这条记忆？')) {
     mutatePreference(id, 'delete');
+  }
+});
+
+$('adoptedMemory')?.addEventListener('click', event => {
+  if (event.target.closest('[data-adopted-detail]')) {
+    $('contextPrimary')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('memoryBtn')?.focus();
   }
 });
 
@@ -1470,6 +1586,8 @@ async function handleGenerate({ reuse = false } = {}) {
     currentTask.pending = false;
     currentTask.output_meta = resp;
     renderResults(images, resp, { append: true });
+    refreshVisualMemory(currentTask.task_id).catch(() => {});
+    loadCredits();
     toast('生成完成：' + images.length + ' 张候选已就绪。', 'success', 4000);
   } catch (err) {
     stopElapsed();
@@ -1506,13 +1624,22 @@ async function handleGenerate({ reuse = false } = {}) {
 
 /* ---------- 事件绑定 ---------- */
 document.querySelectorAll('.chip').forEach(chip =>
-  chip.addEventListener('click', () => chip.classList.toggle('active')));
+  chip.addEventListener('click', () => { chip.classList.toggle('active'); syncStyleSummary(); }));
+function syncStyleSummary() {
+  const summary = $('styleSummary');
+  if (!summary) return;
+  const values = Array.from(document.querySelectorAll('.chip.active')).map(chip => chip.textContent.trim());
+  summary.textContent = values.length ? values.join('、') : '未选择，将由文字描述主导';
+}
+syncStyleSummary();
 document.querySelectorAll('.mode').forEach(mode =>
   mode.addEventListener('click', () => {
     document.querySelectorAll('.mode').forEach(m => m.classList.remove('active'));
     mode.classList.add('active');
     syncRefineControls();
+    updateCreditEstimate();
   }));
+$('count')?.addEventListener('change', updateCreditEstimate);
 $('generate').addEventListener('click', startNewGeneration);
 $('refreshPageBtn')?.addEventListener('click', reloadPage);
 $('loginBtn').addEventListener('click', () => routeTo('login'));
@@ -1521,6 +1648,23 @@ $('newProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
 $('providerSettingsBtn')?.addEventListener('click', () => { routeTo('provider-settings'); loadProviderSettings(); });
 $('backFromProviderSettingsBtn')?.addEventListener('click', () => routeTo('projects'));
 $('providerSettingsForm')?.addEventListener('submit', saveProviderSettings);
+$('adminBtn')?.addEventListener('click', () => routeTo('admin'));
+$('backFromAdminBtn')?.addEventListener('click', () => routeTo('projects'));
+$('adminCreditForm')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  const message = $('adminCreditMessage');
+  if (message) message.textContent = '正在写入账本…';
+  try {
+    const data = await api('/admin/credits/adjust', { method: 'POST', body: {
+      user_id: $('adminUserId').value.trim(), points: Number($('adminPoints').value), reason: $('adminReason').value.trim()
+    }});
+    if (message) message.textContent = '调整成功，当前余额：' + data.balance_points + ' 点。账本记录：' + data.ledger_entry_id;
+    toast('点数账本调整成功。', 'success');
+  } catch (err) {
+    if (message) message.textContent = '调整失败：' + err.message;
+    toast('点数调整失败：' + err.message, 'error');
+  }
+});
 $('clearProviderSettingsBtn')?.addEventListener('click', clearProviderSettings);
 $('manageProjectsBtn')?.addEventListener('click', () => routeTo('projects'));
 $('workbenchNewProjectBtn')?.addEventListener('click', () => routeTo('new-project'));
@@ -1576,7 +1720,15 @@ $('projectSelect')?.addEventListener('change', event => handleProjectChange(even
 $('taskCenterRetry')?.addEventListener('click', () => loadProjectTasks());
 $('taskPagination')?.addEventListener('click', event => {
   const button = event.target.closest('[data-task-page]');
+  const more = event.target.closest('[data-task-more]');
+  if (more) {
+    taskExpanded = more.dataset.taskMore === 'expand';
+    taskPage = 1;
+    renderTaskList(projectTasks);
+    return;
+  }
   if (!button || button.disabled) return;
+  taskExpanded = true;
   taskPage += button.dataset.taskPage === 'next' ? 1 : -1;
   renderTaskList(projectTasks);
 });
@@ -1621,7 +1773,7 @@ $('results').addEventListener('click', e => {
 });
 
 /* 图片加载失败的全局兜底（个别候选图加载超时） */
-$('memoryBtn').addEventListener('click', () => toast('视觉记忆管理将在后续版本开放。', 'info'));
+$('memoryBtn').addEventListener('click', () => refreshVisualMemory());
 $('profileBtn').addEventListener('click', () => toast('审美画像功能将在后续版本开放。', 'info'));
 
 handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, 'error', 8000)).finally(() => {
@@ -1631,4 +1783,5 @@ handleOidcCallback().catch(err => toast('登录回调失败：' + err.message, '
 refreshLoginUI();
 renderRefineContext();
 syncRefineControls();
+updateCreditEstimate();
 renderRoute();
