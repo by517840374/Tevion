@@ -242,6 +242,27 @@ body[data-route="register"] .topbar-meta { color:#718072; }
 #workbenchView .creation-panel > #generate { margin-top:14px; }
 #workbenchView .creation-panel .credit-estimate { margin-top:8px; }
 #workbenchView .creation-panel .privacy-note { margin-bottom:0; }
+#workbenchView .interpretation p,
+#workbenchView .empty-results h3,
+#workbenchView .result-top h3,
+#workbenchView .loading-block h3,
+#workbenchView .error-box .error-title,
+#workbenchView .right-column h2 { font-family:var(--sans); }
+#workbenchView .understanding,
+#workbenchView .execution-entry,
+#workbenchView .empty-results,
+#workbenchView .creation-panel { border-radius:12px; }
+#workbenchView .sidebar textarea,
+#workbenchView .sidebar select,
+#workbenchView .secondary-button,
+#workbenchView .small-button { border-radius:8px; }
+#workbenchView .primary-button { box-shadow:0 6px 18px rgba(201,243,108,.08); }
+#workbenchView .primary-button:hover { box-shadow:0 8px 22px rgba(201,243,108,.12); }
+#workbenchView .primary-button:active,
+#workbenchView .secondary-button:active,
+#workbenchView .small-button:active,
+#workbenchView .mode:active,
+#workbenchView .chip:active { transform:translateY(1px) scale(.99); }
 #workbenchView .project-picker { margin-top:18px; padding:13px 14px; }
 #workbenchView .refine-upload { margin-top:16px; }
 #workbenchView .understanding { padding:28px; margin-bottom:54px; }
