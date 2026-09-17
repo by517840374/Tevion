@@ -229,6 +229,19 @@ body[data-route="register"] .topbar-meta { color:#718072; }
 #workbenchView .sidebar h1 { font-size:30px; line-height:1.12; margin-bottom:32px; }
 #workbenchView .sidebar .field-label { font-size:11px; }
 #workbenchView .sidebar textarea { min-height:132px; }
+#workbenchView .creation-panel { margin-top:22px; padding:16px 14px 15px; border:1px solid rgba(148,177,143,.2); border-radius:12px; background:rgba(23,30,24,.72); box-shadow:0 14px 34px rgba(0,0,0,.12); }
+#workbenchView .creation-panel-heading { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid rgba(148,177,143,.16); }
+#workbenchView .creation-panel-heading .field-label { color:var(--ink); font-size:12px; font-weight:650; }
+#workbenchView .creation-panel-heading .muted { font-size:9px; }
+#workbenchView .creation-panel > label[for="request"] { display:block; margin-bottom:7px; }
+#workbenchView .creation-panel .style-picker { margin-top:14px; }
+#workbenchView .creation-panel .project-picker { margin-top:16px; background:rgba(10,14,11,.32); }
+#workbenchView .creation-panel .refine-upload { margin-top:12px; background:rgba(10,14,11,.28); }
+#workbenchView .creation-panel .refine-context { margin-top:12px; }
+#workbenchView .creation-panel .form-grid { margin-top:16px; padding-top:14px; border-top:1px solid rgba(148,177,143,.16); }
+#workbenchView .creation-panel > #generate { margin-top:14px; }
+#workbenchView .creation-panel .credit-estimate { margin-top:8px; }
+#workbenchView .creation-panel .privacy-note { margin-bottom:0; }
 #workbenchView .project-picker { margin-top:18px; padding:13px 14px; }
 #workbenchView .refine-upload { margin-top:16px; }
 #workbenchView .understanding { padding:28px; margin-bottom:54px; }
@@ -250,6 +263,34 @@ body[data-route="register"] .topbar-meta { color:#718072; }
 #workbenchView .candidate-meta .text-button { white-space:nowrap; }
 #workbenchView .candidate { background:#171e18; }
 #workbenchView .candidate:hover { transform:translateY(-1px); }
+
+/* Execution history: newest run first, with a deliberate 1-up / 4-up result rhythm. */
+#workbenchView .execution-history { margin:0 0 42px; padding:0 0 24px; border-bottom:1px solid rgba(148,177,143,.18); }
+#workbenchView .execution-history-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:8px; }
+#workbenchView .execution-history-heading h2 { margin:4px 0 0; font-size:22px; font-weight:650; letter-spacing:-.025em; }
+#workbenchView .history-count { color:var(--accent2); font-size:10px; }
+#workbenchView .history-feed-status { margin:0 0 16px; font-size:11px; }
+#workbenchView .execution-history-list { display:grid; gap:18px; }
+#workbenchView .execution-entry { padding:16px; border:1px solid rgba(148,177,143,.18); border-radius:12px; background:rgba(23,30,24,.78); box-shadow:0 12px 28px rgba(0,0,0,.12); }
+#workbenchView .execution-entry-top { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }
+#workbenchView .execution-entry-top h3 { margin:8px 0 0; color:var(--ink); font-size:15px; line-height:1.45; font-weight:600; }
+#workbenchView .execution-entry-top time { color:var(--muted); font-size:10px; white-space:nowrap; }
+#workbenchView .execution-index { display:inline-grid; place-items:center; width:24px; height:24px; margin-right:8px; border:1px solid rgba(201,243,108,.35); border-radius:7px; color:var(--accent); font-size:10px; font-weight:700; }
+#workbenchView .execution-entry-meta { display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; color:var(--muted); font-size:10px; }
+#workbenchView .execution-images { display:grid; gap:3px; overflow:hidden; border-radius:8px; background:#0b0e0b; }
+#workbenchView .execution-images.single-result { grid-template-columns:minmax(0,1fr); max-width:58%; }
+#workbenchView .execution-images.four-results { grid-template-columns:repeat(4,minmax(0,1fr)); }
+#workbenchView .execution-image { position:relative; display:block; min-width:0; padding:0; border:0; background:#0b0e0b; cursor:zoom-in; overflow:hidden; }
+#workbenchView .execution-image img { display:block; width:100%; aspect-ratio:4/5; object-fit:cover; transition:transform .25s, opacity .25s; }
+#workbenchView .execution-image:hover img { transform:scale(1.025); opacity:.9; }
+#workbenchView .execution-image span { position:absolute; left:8px; bottom:8px; padding:3px 5px; border-radius:4px; background:rgba(9,13,10,.78); color:var(--accent); font-size:9px; }
+#workbenchView .execution-entry-placeholder { padding:28px 16px; border:1px dashed rgba(148,177,143,.22); border-radius:8px; color:var(--muted); font-size:11px; text-align:center; }
+#workbenchView .execution-entry-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+#workbenchView .execution-history-empty { display:grid; gap:5px; padding:28px 18px; border:1px dashed rgba(148,177,143,.22); border-radius:10px; color:var(--muted); font-size:11px; }
+#workbenchView .execution-history-empty strong { color:var(--ink); font-size:13px; }
+#workbenchView .execution-history-pagination { display:flex; justify-content:center; align-items:center; gap:14px; margin-top:16px; padding-top:14px; border-top:1px solid rgba(148,177,143,.14); color:var(--muted); font-size:10px; }
+#workbenchView .execution-history-pagination[hidden] { display:none; }
+#workbenchView .execution-history-pagination button:disabled { opacity:.4; cursor:not-allowed; }
 #workbenchView .memory-card { background:transparent; border-width:0 0 0 2px; border-radius:0; padding:10px 0 10px 12px; }
 #workbenchView .memory-list { gap:14px; }
 #workbenchView .memory-footer { margin-top:28px; }
@@ -348,6 +389,12 @@ body[data-route="register"] .topbar-meta { color:#718072; }
   #workbenchView .candidate-meta .card-info { grid-column:1 / -1; }
   #workbenchView .right-column { padding-top:30px; }
   #workbenchView .context-heading { margin-bottom:18px; }
+  #workbenchView .execution-history { margin-bottom:34px; }
+  #workbenchView .execution-entry { padding:12px; }
+  #workbenchView .execution-images.single-result { max-width:100%; }
+  #workbenchView .execution-entry-top { gap:10px; }
+  #workbenchView .execution-entry-top time { font-size:9px; }
+  #workbenchView .creation-panel { margin-top:18px; padding:14px 12px; }
 }
 @media(max-width:420px) {
   #workbenchView .candidate-grid { grid-template-columns:1fr; }

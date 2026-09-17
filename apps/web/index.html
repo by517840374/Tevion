@@ -185,8 +185,10 @@
     <aside class="sidebar panel">
       <div class="eyebrow">START WITH A FEELING</div>
       <h1>先说感觉，<br><em>再一起收敛。</em></h1>
-      <label class="field-label" for="request">你想创作什么？</label>
-      <textarea id="request" rows="5">我想要一组适合做社交头像的年轻男性肖像：气质干净、有电影感，看起来明确成年但保有少年感。</textarea>
+      <div class="creation-panel" id="creationPanel">
+        <div class="creation-panel-heading"><span class="field-label">本次执行</span><span class="muted">输入需求并设置输出</span></div>
+        <label class="field-label" for="request">你想创作什么？</label>
+        <textarea id="request" rows="5">我想要一组适合做社交头像的年轻男性肖像：气质干净、有电影感，看起来明确成年但保有少年感。</textarea>
       <details class="style-picker" id="stylePicker">
         <summary><span class="field-label">视觉方向</span><span class="style-summary" id="styleSummary">清爽自然、成年青春感</span><span class="style-toggle" aria-hidden="true">展开</span></summary>
         <div class="style-picker-body">
@@ -227,10 +229,20 @@
       </div>
       <button class="primary-button" id="generate" aria-describedby="loginHint">生成视觉方案 <span aria-hidden="true">→</span></button>
       <p class="credit-estimate" id="creditEstimate">本次预计消耗 10 点，生成失败会自动释放。</p>
-      <p class="privacy-note" id="loginHint">未登录：生成前请先完成「演示登录」。</p>
+        <p class="privacy-note" id="loginHint">未登录：生成前请先完成「演示登录」。</p>
+      </div>
     </aside>
 
     <section class="center-column">
+      <section class="execution-history" id="executionHistory" aria-live="polite" aria-busy="false">
+        <div class="execution-history-heading">
+          <div><div class="eyebrow">EXECUTION HISTORY</div><h2>执行记录</h2></div>
+          <span class="history-count" id="executionHistoryCount">按时间倒序</span>
+        </div>
+        <p class="history-feed-status muted" id="executionHistoryStatus">登录并选择项目后，这里会显示最近的执行结果。</p>
+        <div class="execution-history-list" id="executionHistoryList"></div>
+        <div class="execution-history-pagination" id="executionHistoryPagination" hidden aria-label="执行记录分页"></div>
+      </section>
       <div class="section-heading">
         <div><div class="eyebrow">AGENT DIRECTOR</div><h2>我这样理解你的感觉</h2></div>
         <span class="live-pill" id="agentState" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span> 已准备</span>
