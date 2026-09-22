@@ -268,7 +268,7 @@ function executionHistoryImageMarkup(item) {
     const value = typeof image === 'string' ? { url: image } : (image || {});
     const imageUrl = resolveImageUrl(value.url);
     if (!imageUrl) return '';
-    return '<button type="button" class="execution-image" data-lightbox="' + escapeHtml(imageUrl) + '" aria-label="打开第 ' + (index + 1) + ' 张执行结果"><img loading="lazy" alt="执行结果 ' + (index + 1) + '" src="' + escapeHtml(imageUrl) + '"><span>' + String(index + 1).padStart(2, '0') + '</span></button>';
+    return '<button type="button" class="execution-image" data-lightbox="' + escapeHtml(imageUrl) + '" aria-label="打开第 ' + (index + 1) + ' 张执行结果"><img loading="lazy" alt="执行结果 ' + (index + 1) + '" src="' + escapeHtml(imageUrl) + '"></button>';
   }).join('');
 }
 
@@ -279,16 +279,18 @@ function renderExecutionHistory(items = projectTasks) {
   const count = $('executionHistoryCount');
   if (!list) return;
   const sorted = [...items].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  if (count) count.textContent = sorted.length ? '共 ' + sorted.length + ' 次执行' : '暂无执行记录';
-  if (!sorted.length) {
-    list.innerHTML = '<div class="execution-history-empty"><strong>还没有执行记录</strong><span>生成完成后，最新结果会出现在这里。</span></div>';
-    if (status) status.textContent = '按时间倒序展示，支持分页查看。';
+  const currentTaskId = currentTask?.task_id || '';
+  const historyItems = currentTaskId ? sorted.filter(item => item.task_id !== currentTaskId) : sorted;
+  if (count) count.textContent = historyItems.length ? '共 ' + historyItems.length + ' 次历史执行' : '暂无历史执行';
+  if (!historyItems.length) {
+    list.innerHTML = '<div class="execution-history-empty"><strong>还没有其他历史执行</strong><span>当前结果会显示在上方，后续执行完成后会按时间倒序保留在这里。</span></div>';
+    if (status) status.textContent = currentTaskId ? '当前执行已置于上方，历史结果收在这里。' : '按时间倒序展示，支持分页查看。';
     if (pagination) pagination.hidden = true;
     return;
   }
-  const pageCount = Math.max(1, Math.ceil(sorted.length / EXECUTION_HISTORY_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(historyItems.length / EXECUTION_HISTORY_PAGE_SIZE));
   executionHistoryPage = Math.min(Math.max(executionHistoryPage, 1), pageCount);
-  const visible = sorted.slice((executionHistoryPage - 1) * EXECUTION_HISTORY_PAGE_SIZE, executionHistoryPage * EXECUTION_HISTORY_PAGE_SIZE);
+  const visible = historyItems.slice((executionHistoryPage - 1) * EXECUTION_HISTORY_PAGE_SIZE, executionHistoryPage * EXECUTION_HISTORY_PAGE_SIZE);
   list.innerHTML = visible.map((item, pageIndex) => {
     const statusValue = String(item.status || 'unknown').toLowerCase();
     const images = Array.isArray(item.images) ? item.images : [];
@@ -301,16 +303,16 @@ function renderExecutionHistory(items = projectTasks) {
     if (['created', 'generating', 'unknown'].includes(statusValue)) actions = '<button type="button" class="small-button" data-task-continue="' + data + '">继续查询</button>';
     if (statusValue === 'failed' && item.retryable !== false) actions = '<button type="button" class="small-button" data-task-retry="' + data + '">重试生成</button>';
     return '<article class="execution-entry execution-status-' + escapeHtml(statusValue) + '">' +
-      '<div class="execution-entry-top"><div><span class="execution-index">' + String((executionHistoryPage - 1) * EXECUTION_HISTORY_PAGE_SIZE + pageIndex + 1).padStart(2, '0') + '</span><span class="task-status-badge">' + escapeHtml(taskStatusLabel(statusValue)) + '</span><h3>' + escapeHtml(String(item.request || '未提供请求')) + '</h3></div><time>' + escapeHtml(taskDate(item.created_at)) + '</time></div>' +
+      '<div class="execution-entry-top"><div><span class="task-status-badge">' + escapeHtml(taskStatusLabel(statusValue)) + '</span><h3>' + escapeHtml(String(item.request || '未提供请求')) + '</h3></div><time>' + escapeHtml(taskDate(item.created_at)) + '</time></div>' +
       '<div class="execution-entry-meta"><span>' + escapeHtml(item.mode === 'refine' ? '精修 Refine' : '探索 Explore') + '</span><span>' + escapeHtml(String(countValue)) + ' / ' + escapeHtml(String(requested)) + ' 张结果</span><span>run_id：' + escapeHtml(item.run_id || '未提供') + '</span></div>' +
       (images.length ? '<div class="' + imageClass + '">' + executionHistoryImageMarkup(item) + '</div>' : '<div class="execution-entry-placeholder">' + (statusValue === 'failed' ? '本次执行未生成结果。' : '结果仍在准备中，可继续查询。') + '</div>') +
       (item.error_code ? '<p class="task-error">' + escapeHtml(String(item.error_code)) + '</p>' : '') +
       (actions ? '<div class="execution-entry-actions">' + actions + '</div>' : '') +
       '</article>';
   }).join('');
-  if (status) status.textContent = '最新执行显示在最上方；每页显示 ' + EXECUTION_HISTORY_PAGE_SIZE + ' 条。';
+  if (status) status.textContent = '当前结果显示在上方；历史记录按时间倒序，每页显示 ' + EXECUTION_HISTORY_PAGE_SIZE + ' 条。';
   if (pagination) {
-    pagination.hidden = sorted.length <= EXECUTION_HISTORY_PAGE_SIZE;
+    pagination.hidden = historyItems.length <= EXECUTION_HISTORY_PAGE_SIZE;
     pagination.innerHTML = '<button type="button" class="small-button" data-history-page="prev"' + (executionHistoryPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + executionHistoryPage + ' / ' + pageCount + ' 页</span><button type="button" class="small-button" data-history-page="next"' + (executionHistoryPage >= pageCount ? ' disabled' : '') + '>下一页</button>';
   }
   bindLightboxLinks(list);

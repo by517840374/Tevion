@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tevion - Visual Agent Workbench</title>
   <link rel="stylesheet" href="styles.css?v=20260922">
-  <link rel="stylesheet" href="interactive.css?v=20260922-workbench-history">
+  <link rel="stylesheet" href="interactive.css?v=20260922-latest-first">
 </head>
 <body>
   <header class="topbar">
@@ -234,15 +234,6 @@
     </aside>
 
     <section class="center-column">
-      <section class="execution-history" id="executionHistory" aria-live="polite" aria-busy="false">
-        <div class="execution-history-heading">
-          <div><div class="eyebrow">EXECUTION HISTORY</div><h2>执行记录</h2></div>
-          <span class="history-count" id="executionHistoryCount">按时间倒序</span>
-        </div>
-        <p class="history-feed-status muted" id="executionHistoryStatus">登录并选择项目后，这里会显示最近的执行结果。</p>
-        <div class="execution-history-list" id="executionHistoryList"></div>
-        <div class="execution-history-pagination" id="executionHistoryPagination" hidden aria-label="执行记录分页"></div>
-      </section>
       <div class="section-heading">
         <div><div class="eyebrow">AGENT DIRECTOR</div><h2>我这样理解你的感觉</h2></div>
         <span class="live-pill" id="agentState" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span> 已准备</span>
@@ -263,6 +254,15 @@
         <p>Agent 会先探索差异，再根据你的选择逐步收敛。</p>
         <button class="secondary-button" id="loginCta" hidden>先演示登录，再开始生成</button>
       </div>
+      <section class="execution-history" id="executionHistory" aria-live="polite" aria-busy="false">
+        <div class="execution-history-heading">
+          <div><div class="eyebrow">PAST EXECUTIONS</div><h2>历史执行</h2></div>
+          <span class="history-count" id="executionHistoryCount">按时间倒序</span>
+        </div>
+        <p class="history-feed-status muted" id="executionHistoryStatus">登录并选择项目后，这里会显示之前的执行结果。</p>
+        <div class="execution-history-list" id="executionHistoryList"></div>
+        <div class="execution-history-pagination" id="executionHistoryPagination" hidden aria-label="历史执行分页"></div>
+      </section>
     </section>
 
     <aside class="right-column panel">
@@ -309,6 +309,6 @@
   <script>
     window.TEVION_OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
   </script>
-  <script src="app.js?v=20260922-workbench-history"></script>
+  <script src="app.js?v=20260922-latest-first"></script>
 </body>
 </html>
