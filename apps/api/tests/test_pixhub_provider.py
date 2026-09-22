@@ -65,6 +65,23 @@ def test_pixhub_normalizes_b64_response_as_explicit_temporary_data_asset():
     assert result.metadata == {"asset_persistence": "temporary_base64"}
 
 
+def test_pixhub_accepts_valid_response_without_provider_request_id():
+    provider = PixhubImageProvider(api_key=API_KEY, base_url="https://pixhub.test")
+
+    result = provider.normalize_response(
+        {"model": "gpt-image-2.5", "data": [{"url": "https://tmp.test/a.png"}]},
+        latency_ms=2,
+        requested_count=1,
+    )
+
+    assert result.provider_request_id.startswith("pixhub-local-")
+    assert result.asset_urls == ["https://tmp.test/a.png"]
+    assert result.metadata == {
+        "asset_persistence": "temporary_provider_url",
+        "request_id_source": "local_fallback",
+    }
+
+
 def test_pixhub_maps_request_model_size_quality_and_response_format():
     provider = PixhubImageProvider(
         api_key=API_KEY,

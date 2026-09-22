@@ -3,6 +3,7 @@ import binascii
 import json
 import logging
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -260,12 +261,17 @@ class PixhubImageProvider:
     def normalize_response(
         self, response: dict[str, Any], *, latency_ms: int, requested_count: int = 1
     ) -> GenerationResult:
-        request_id = response.get("id")
         data = response.get("data")
-        if not isinstance(request_id, str) or not request_id:
-            raise ProviderResponseError("Pixhub request id is missing")
         if not isinstance(data, list) or not data:
             raise ProviderResponseError("Pixhub response data is missing")
+        request_id = response.get("id")
+        request_id_source = "provider_response"
+        if not isinstance(request_id, str) or not request_id:
+            # Pixhub's current response omits the OpenAI-compatible `id` even
+            # when it returns a valid asset. Keep the internal contract
+            # non-null, but make the lack of provider correlation explicit.
+            request_id = f"pixhub-local-{uuid.uuid4().hex}"
+            request_id_source = "local_fallback"
         asset_urls: list[str] = []
         persistence: str | None = None
         for item in data:
@@ -279,6 +285,9 @@ class PixhubImageProvider:
                 persistence = "temporary_base64"
         if not asset_urls:
             raise ProviderResponseError("Pixhub response contains no asset")
+        metadata: dict[str, Any] = {"asset_persistence": persistence}
+        if request_id_source == "local_fallback":
+            metadata["request_id_source"] = request_id_source
         return GenerationResult(
             provider_name=self.provider_name,
             provider_request_id=request_id,
@@ -286,7 +295,7 @@ class PixhubImageProvider:
             asset_urls=asset_urls,
             latency_ms=latency_ms,
             metadata_source="provider_response",
-            metadata={"asset_persistence": persistence},
+            metadata=metadata,
             requested_count=requested_count,
         )
 
