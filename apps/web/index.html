@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tevion - Visual Agent Workbench</title>
   <link rel="stylesheet" href="styles.css?v=20260922">
-  <link rel="stylesheet" href="interactive.css?v=20260922-latest-first">
+  <link rel="stylesheet" href="interactive.css?v=20260922-async-queue">
 </head>
 <body>
   <header class="topbar">
@@ -248,6 +248,13 @@
         <div><div class="eyebrow">CANDIDATE DIRECTIONS</div><h2 id="resultsTitle">先从几种感觉里选一个方向</h2></div>
         <span class="muted" id="resultsMeta">等待生成</span>
       </div>
+      <section class="async-task-queue" id="asyncTaskQueue" aria-live="polite" aria-busy="false" hidden>
+        <div class="async-task-queue-heading">
+          <div><div class="eyebrow">BACKGROUND GENERATION</div><strong>后台任务</strong></div>
+          <span id="asyncTaskQueueCount">0 个进行中</span>
+        </div>
+        <div class="async-task-queue-list" id="asyncTaskQueueList"></div>
+      </section>
       <div class="empty-results panel" id="results" aria-live="polite" aria-busy="false">
         <div class="empty-orbit"></div>
         <h3>你的视觉候选会出现在这里</h3>
@@ -309,6 +316,6 @@
   <script>
     window.TEVION_OIDC_CONFIG = window.TEVION_OIDC_CONFIG || null;
   </script>
-  <script src="app.js?v=20260922-latest-first"></script>
+  <script src="app.js?v=20260922-async-queue"></script>
 </body>
 </html>

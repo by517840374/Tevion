@@ -27,6 +27,7 @@ let uploadedParentVersionId = null;
 let uploadedReferenceImages = [];
 let referenceUploadInFlight = false;
 let projectTasks = [];
+let pendingAsyncTasks = new Map();
 let generationRounds = [];
 let taskPage = 1;
 let taskExpanded = false;
@@ -272,6 +273,39 @@ function executionHistoryImageMarkup(item) {
   }).join('');
 }
 
+function activeAsyncTaskIds() {
+  const projectId = getProjectId();
+  return new Set(Array.from(pendingAsyncTasks.values())
+    .filter(task => !projectId || !task.project_id || task.project_id === projectId)
+    .map(task => task.task_id)
+    .filter(Boolean));
+}
+
+function renderAsyncTaskQueue() {
+  const queue = $('asyncTaskQueue');
+  const list = $('asyncTaskQueueList');
+  const count = $('asyncTaskQueueCount');
+  if (!queue || !list) return;
+  const activeIds = activeAsyncTaskIds();
+  const tasks = Array.from(pendingAsyncTasks.values())
+    .filter(task => activeIds.has(task.task_id))
+    .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+  queue.hidden = !tasks.length;
+  queue.setAttribute('aria-busy', tasks.length ? 'true' : 'false');
+  if (count) count.textContent = tasks.length + ' 个进行中';
+  if (!tasks.length) {
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = tasks.map(task => {
+    const requested = Number(task.output_count) || 1;
+    return '<article class="async-task-entry">' +
+      '<div class="async-task-entry-main"><span class="async-task-pulse" aria-hidden="true"></span><div><strong>' + escapeHtml(String(task.request || '未命名任务')) + '</strong><span>后台生成中 · ' + requested + ' 张候选 · 可继续创建下一轮</span></div></div>' +
+      '<span class="async-task-entry-id">' + escapeHtml(String(task.task_id || '')) + '</span>' +
+      '</article>';
+  }).join('');
+}
+
 function renderExecutionHistory(items = projectTasks) {
   const list = $('executionHistoryList');
   const pagination = $('executionHistoryPagination');
@@ -280,11 +314,12 @@ function renderExecutionHistory(items = projectTasks) {
   if (!list) return;
   const sorted = [...items].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   const currentTaskId = currentTask?.task_id || '';
-  const historyItems = currentTaskId ? sorted.filter(item => item.task_id !== currentTaskId) : sorted;
+  const activeIds = activeAsyncTaskIds();
+  const historyItems = sorted.filter(item => item.task_id !== currentTaskId && !activeIds.has(item.task_id));
   if (count) count.textContent = historyItems.length ? '共 ' + historyItems.length + ' 次历史执行' : '暂无历史执行';
   if (!historyItems.length) {
     list.innerHTML = '<div class="execution-history-empty"><strong>还没有其他历史执行</strong><span>当前结果会显示在上方，后续执行完成后会按时间倒序保留在这里。</span></div>';
-    if (status) status.textContent = currentTaskId ? '当前执行已置于上方，历史结果收在这里。' : '按时间倒序展示，支持分页查看。';
+    if (status) status.textContent = activeIds.size ? '后台任务已集中显示在上方；完成后会自动进入历史执行。' : (currentTaskId ? '当前执行已置于上方，历史结果收在这里。' : '按时间倒序展示，支持分页查看。');
     if (pagination) pagination.hidden = true;
     return;
   }
@@ -310,7 +345,7 @@ function renderExecutionHistory(items = projectTasks) {
       (actions ? '<div class="execution-entry-actions">' + actions + '</div>' : '') +
       '</article>';
   }).join('');
-  if (status) status.textContent = '当前结果显示在上方；历史记录按时间倒序，每页显示 ' + EXECUTION_HISTORY_PAGE_SIZE + ' 条。';
+  if (status) status.textContent = activeIds.size ? '后台任务已集中显示在上方；历史记录按时间倒序，每页显示 ' + EXECUTION_HISTORY_PAGE_SIZE + ' 条。' : '当前结果显示在上方；历史记录按时间倒序，每页显示 ' + EXECUTION_HISTORY_PAGE_SIZE + ' 条。';
   if (pagination) {
     pagination.hidden = historyItems.length <= EXECUTION_HISTORY_PAGE_SIZE;
     pagination.innerHTML = '<button type="button" class="small-button" data-history-page="prev"' + (executionHistoryPage <= 1 ? ' disabled' : '') + '>上一页</button><span>第 ' + executionHistoryPage + ' / ' + pageCount + ' 页</span><button type="button" class="small-button" data-history-page="next"' + (executionHistoryPage >= pageCount ? ' disabled' : '') + '>下一页</button>';
@@ -368,6 +403,7 @@ async function loadProjectTasks(projectId = getProjectId()) {
     taskPage = 1;
     taskExpanded = false;
     executionHistoryPage = 1;
+    renderAsyncTaskQueue();
     renderExecutionHistory(projectTasks);
     renderTaskList(projectTasks);
     renderTaskCenterMessage(projectTasks.length ? '已加载 ' + projectTasks.length + ' 个任务。' : '当前项目暂无任务。');
@@ -780,6 +816,8 @@ async function handleLogin() {
 function handleLogout() {
   clearToken();
   currentTask = null;
+  pendingAsyncTasks.clear();
+  renderAsyncTaskQueue();
   chosenId = null;
   stopElapsed();
   resetResults('已退出登录。重新演示登录后即可继续生成。');
@@ -976,6 +1014,7 @@ function resetResults(msg) {
   generationRounds = [];
   renderRefineContext();
   const r = $('results');
+  r.hidden = false;
   r.className = 'empty-results panel';
   r.setAttribute('aria-busy', 'false');
   r.innerHTML = '<div class="empty-orbit"></div><h3>你的视觉候选会出现在这里</h3><p>' + (msg || '点击「生成视觉方案」，Agent 将创建任务并真实生成候选图片。') + '</p>';
@@ -990,29 +1029,30 @@ function resetResults(msg) {
   $('resultsMeta').textContent = '等待生成';
 }
 
-function renderLoading(stepIdx, mainText, subText) {
+function renderLoading(stepIdx, mainText, subText, includePlaceholders = true) {
   const r = $('results');
+  r.hidden = false;
   // 每次状态更新只保留一条当前轮次状态，避免“创建任务”和“生成候选”叠成两块。
   r.querySelectorAll('.compact-loading, .generation-placeholders').forEach(element => element.remove());
   const previousResults = generationRounds.length ? r.innerHTML : '';
-  r.className = 'results panel';
+  r.className = 'results panel' + (previousResults ? '' : ' pending-results');
   r.setAttribute('aria-live', 'polite');
   r.setAttribute('aria-busy', 'true');
   const steps = ['创建任务', '生成候选'];
   const count = Math.max(1, Number(currentTask?.output_count) || 1);
-  const placeholders = stepIdx === 1
+  const placeholders = includePlaceholders && stepIdx === 1
     ? '<div class="candidate-grid generation-placeholders" aria-label="真实生成结果等待区">' +
       Array.from({ length: count }, (_, i) => '<article class="candidate candidate-placeholder" data-generation-placeholder="true" aria-label="候选 ' + (i + 1) + ' 正在等待真实图片"><div class="img-wrap placeholder-wrap" style="aspect-ratio:4/5;background:linear-gradient(110deg,#1c211e 30%,#303a31 45%,#1c211e 60%);background-size:200% 100%;animation:placeholder-shimmer 2.4s ease-in-out infinite"><div class="placeholder-label">候选 ' + String(i + 1).padStart(2, '0') + '<br><span>等待真实图片</span></div></div><div class="candidate-meta"><span class="card-no">CANDIDATE ' + String(i + 1).padStart(2, '0') + '</span><span class="muted">后端返回后显示</span></div></article>').join('') +
       '</div>'
     : '';
-  r.innerHTML = previousResults +
-    '<div class="loading-block compact-loading" aria-label="生成任务处理中">' +
+  const loadingMarkup = '<div class="loading-block compact-loading" aria-label="生成任务处理中">' +
       '<div class="spinner"></div>' +
       '<div class="loading-copy"><strong>生成任务处理中</strong><span>后台轮询中 · 最长 5 分钟</span></div>' +
       '<div class="gen-steps">' +
         steps.map((s, i) => '<span class="step ' + (i < stepIdx ? 'done' : i === stepIdx ? 'active' : '') + '">' + (i < stepIdx ? '✓ ' : '') + s + '</span>').join('') +
       '</div>' +
-    '</div>' + placeholders;
+    '</div>';
+  r.innerHTML = loadingMarkup + previousResults + placeholders;
   if (previousResults) {
     const regenerate = r.querySelector('#regenerate');
     if (regenerate) regenerate.addEventListener('click', startNewGeneration);
@@ -1132,6 +1172,7 @@ function renderResults(images, outputMeta = {}, { append = false, useState = fal
     else generationRounds = [round];
   }
   const r = $('results');
+  r.hidden = false;
   r.className = 'results panel';
   r.setAttribute('aria-busy', 'false');
   $('resultsTitle').textContent = '你的视觉候选已就绪，选一张最接近你感觉的';
@@ -1224,6 +1265,7 @@ function renderRecoverableTask(message) {
   stopElapsed();
   setBusy(false);
   const r = $('results');
+  r.hidden = false;
   r.className = 'results panel';
   r.setAttribute('aria-busy', 'false');
   r.innerHTML = '<div class="error-box"><div class="error-title">生成仍可继续查询</div><p>' + escapeHtml(message) + '</p><div class="actions"><button class="small-button" id="continueTaskQuery">继续查询/恢复任务</button><button class="secondary-button" id="errBack">修改需求重来</button></div></div>';
@@ -1266,35 +1308,36 @@ async function pollTaskUntilComplete(task = currentTask) {
 async function trackAsyncGeneration(task) {
   try {
     const detail = await pollTaskUntilComplete(task);
-    if (currentTask?.task_id === task.task_id) {
-      currentTask.pending = false;
-      currentTask.run_id = detail.run_id || currentTask.run_id;
-      currentTask.output_meta = detail;
+    pendingAsyncTasks.delete(task.task_id);
+    renderAsyncTaskQueue();
+    const shouldPromote = currentTask?.task_id === task.task_id || (!currentTask && pendingAsyncTasks.size === 0);
+    if (shouldPromote) {
+      currentTask = { ...task, pending: false, run_id: detail.run_id || task.run_id, output_meta: detail };
       renderResults(detail.images, detail, { append: true });
       refreshVisualMemory(task.task_id).catch(() => {});
       loadCredits();
       toast('任务已完成：' + detail.images.length + ' 张候选已就绪。', 'success', 4000);
     } else {
-      generationRounds.push({
-        images: Array.isArray(detail?.images) ? detail.images : [],
-        meta: detail,
-        taskId: task.task_id,
-      });
-      // 另一轮可能先完成；先把它补进页面，当前轮次的 loading 状态再接回去。
-      if (currentTask?.pending) {
-        renderResults([], detail, { useState: true });
-        renderLoading(1, '生成中，最长等待 5 分钟', '当前轮次仍在后台生成，已完成的轮次不会被覆盖。');
-      }
-      toast('后台任务 ' + task.task_id + ' 已完成，可在任务中心查看结果。', 'success', 5000);
-      loadProjectTasks().catch(() => {});
+      toast('后台任务 ' + task.task_id + ' 已完成，结果已更新到历史执行。', 'success', 5000);
     }
+    loadProjectTasks().catch(() => {});
   } catch (err) {
-    if (currentTask?.task_id !== task.task_id) return;
+    pendingAsyncTasks.delete(task.task_id);
+    renderAsyncTaskQueue();
+    const shouldPromoteFailure = currentTask?.task_id === task.task_id || (!currentTask && pendingAsyncTasks.size === 0);
+    if (!shouldPromoteFailure) {
+      loadProjectTasks().catch(() => {});
+      toast('后台任务 ' + task.task_id + ' 未完成：' + err.message, 'error', 9000);
+      return;
+    }
+    if (!currentTask) currentTask = { ...task, pending: true };
     if (err.network || err.recoveryRequired) renderRecoverableTask(err.message || '暂时无法查询任务状态。');
     else {
       renderRecoverableTask(err.message || '任务查询未完成。');
       toast('后台任务未完成：' + err.message, 'error', 9000);
     }
+    setGenerateLabel('再次生成视觉方案');
+    loadProjectTasks().catch(() => {});
   }
 }
 
@@ -1609,7 +1652,7 @@ async function handleGenerate({ reuse = false } = {}) {
     const request = readRequestText();
     if (!request) return;
     const mode = document.querySelector('.mode.active').dataset.mode;
-    currentTask = { request, mode, aspect_ratio: $('ratio').value, output_count: Number($('count').value) };
+    currentTask = { request, mode, aspect_ratio: $('ratio').value, output_count: Number($('count').value), project_id: getProjectId() || '' };
     const parentVersionId = uploadedParentVersionId || (mode === 'refine' ? chosenId : null);
     if (mode === 'refine' && !parentVersionId) {
         toast('精修前请先选择一张候选图。', 'error');
@@ -1664,6 +1707,22 @@ async function handleGenerate({ reuse = false } = {}) {
         setCheckpoint('任务 ' + submittedTask.task_id + ' 已提交，后台会通过 task ID 查询结果；现在可以创建新一轮。');
         currentTask.pending = true;
         submittedTask.pending = true;
+        submittedTask.created_at = new Date().toISOString();
+        pendingAsyncTasks.set(submittedTask.task_id, submittedTask);
+        renderAsyncTaskQueue();
+        currentTask = null;
+        setBusy(false);
+        setGenerateLabel('生成视觉方案');
+        if (generationRounds.length) {
+          const latest = generationRounds[generationRounds.length - 1];
+          renderResults(latest.images, latest.meta, { useState: true });
+          setAgentPill('已提交，后台生成中', 'busy');
+          setCheckpoint('任务 ' + submittedTask.task_id + ' 已提交，后台会在上方更新；现在可以创建新一轮。');
+        } else {
+          $('results').hidden = true;
+        }
+        renderExecutionHistory(projectTasks);
+        loadProjectTasks().catch(() => {});
         trackAsyncGeneration(submittedTask);
         return;
       } else {
@@ -1713,7 +1772,7 @@ async function handleGenerate({ reuse = false } = {}) {
     setCheckpoint('生成未完成。可按上方按钮重试，或检查后端日志。');
   } finally {
     setBusy(false);
-    if (!busy) setGenerateLabel('再次生成视觉方案');
+    if (!busy) setGenerateLabel(currentTask?.task_id ? '再次生成视觉方案' : '生成视觉方案');
   }
 }
 
